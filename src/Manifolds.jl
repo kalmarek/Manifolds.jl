@@ -1,6 +1,9 @@
 module Manifolds
 
 import ManifoldsBase:
+    @default_manifold_fallbacks,
+    @manifold_element_forwards,
+    @manifold_vector_forwards,
     _access_nested,
     _read,
     _write,
@@ -70,6 +73,7 @@ import ManifoldsBase:
     CotangentSpace,
     TangentSpace
 import Base:
+    angle,
     copyto!,
     convert,
     foreach,

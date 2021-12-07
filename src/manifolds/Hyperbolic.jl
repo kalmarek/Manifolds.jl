@@ -106,88 +106,19 @@ include("HyperbolicHyperboloid.jl")
 include("HyperbolicPoincareBall.jl")
 include("HyperbolicPoincareHalfspace.jl")
 
-_HyperbolicPointTypes = [HyperboloidPoint, PoincareBallPoint, PoincareHalfSpacePoint]
-_HyperbolicTangentTypes =
-    [HyperboloidTVector, PoincareBallTVector, PoincareHalfSpaceTVector]
-_HyperbolicTypes = [_HyperbolicPointTypes..., _HyperbolicTangentTypes...]
+@manifold_element_forwards HyperboloidPoint value
+@manifold_element_forwards PoincareBallPoint value
+@manifold_element_forwards PoincareHalfSpacePoint value
+@manifold_vector_forwards HyperboloidTVector value
+@manifold_vector_forwards PoincareBallTVector value
+@manifold_vector_forwards PoincareHalfSpaceTVector value
 
-for T in _HyperbolicTangentTypes
-    @eval begin
-        Base.:*(v::$T, s::Number) = $T(v.value * s)
-        Base.:*(s::Number, v::$T) = $T(s * v.value)
-        Base.:/(v::$T, s::Number) = $T(v.value / s)
-        Base.:\(s::Number, v::$T) = $T(s \ v.value)
-        Base.:+(v::$T, w::$T) = $T(v.value + w.value)
-        Base.:-(v::$T, w::$T) = $T(v.value - w.value)
-        Base.:-(v::$T) = $T(-v.value)
-        Base.:+(v::$T) = $T(v.value)
-    end
-end
+_otherHyperbolicPointTypes = [PoincareBallPoint, PoincareHalfSpacePoint]
+_otherHyperbolicTangentTypes =
+    [PoincareBallTVector, PoincareHalfSpaceTVector]
+_otherHyperbolicTypes = [_otherHyperbolicPointTypes..., _otherHyperbolicTangentTypes...]
 
-for T in _HyperbolicTypes
-    @eval begin
-        Base.:(==)(v::$T, w::$T) = (v.value == w.value)
-
-        allocate(p::$T) = $T(allocate(p.value))
-        allocate(p::$T, ::Type{P}) where {P} = $T(allocate(p.value, P))
-        allocate(p::$T, ::Type{P}, dims::Tuple) where {P} = $T(allocate(p.value, P, dims))
-
-        @inline Base.copy(p::$T) = $T(copy(p.value))
-        function Base.copyto!(q::$T, p::$T)
-            copyto!(q.value, p.value)
-            return q
-        end
-
-        Base.similar(p::$T) = $T(similar(p.value))
-
-        function Broadcast.BroadcastStyle(::Type{<:$T})
-            return Broadcast.Style{$T}()
-        end
-        function Broadcast.BroadcastStyle(
-            ::Broadcast.AbstractArrayStyle{0},
-            b::Broadcast.Style{$T},
-        )
-            return b
-        end
-
-        Broadcast.instantiate(bc::Broadcast.Broadcasted{Broadcast.Style{$T},Nothing}) = bc
-        function Broadcast.instantiate(bc::Broadcast.Broadcasted{Broadcast.Style{$T}})
-            Broadcast.check_broadcast_axes(bc.axes, bc.args...)
-            return bc
-        end
-
-        Broadcast.broadcastable(v::$T) = v
-
-        @inline function Base.copy(bc::Broadcast.Broadcasted{Broadcast.Style{$T}})
-            return $T(Broadcast._broadcast_getindex(bc, 1))
-        end
-
-        Base.@propagate_inbounds Broadcast._broadcast_getindex(v::$T, I) = v.value
-
-        Base.axes(v::$T) = axes(v.value)
-
-        @inline function Base.copyto!(
-            dest::$T,
-            bc::Broadcast.Broadcasted{Broadcast.Style{$T}},
-        )
-            axes(dest) == axes(bc) || Broadcast.throwdm(axes(dest), axes(bc))
-            # Performance optimization: broadcast!(identity, dest, A) is equivalent to copyto!(dest, A) if indices match
-            if bc.f === identity && bc.args isa Tuple{$T} # only a single input argument to broadcast!
-                A = bc.args[1]
-                if axes(dest) == axes(A)
-                    return copyto!(dest, A)
-                end
-            end
-            bc′ = Broadcast.preprocess(dest, bc)
-            # Performance may vary depending on whether `@inbounds` is placed outside the
-            # for loop or not. (cf. https://github.com/JuliaLang/julia/issues/38086)
-            copyto!(dest.value, bc′[1])
-            return dest
-        end
-    end
-end
-
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
     @eval allocate(p::$P, ::Type{$T}) = $T(allocate(p.value))
     @eval allocate_result_type(::Hyperbolic, ::typeof(log), ::Tuple{$P,$P}) = $T
     @eval allocate_result_type(::Hyperbolic, ::typeof(inverse_retract), ::Tuple{$P,$P}) = $T
@@ -235,7 +166,9 @@ end
 
 # Define self conversions
 #
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(
+    [HyperboloidPoint, PoincareBallPoint, PoincareHalfSpacePoint],
+    [HyperboloidPoint, PoincareBallTVector, PoincareHalfSpaceTVector])
     @eval convert(::Type{$T}, p::$P, X::$T) = X
     @eval function convert(
         ::Type{Tuple{AbstractVector,AbstractVector}},
@@ -265,7 +198,7 @@ the [`Lorentz`](@ref)ian manifold.
 """
 exp(::Hyperbolic, ::Any...)
 
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
     @eval function exp!(M::Hyperbolic, q::$P, p::$P, X::$T)
         q.value .=
             convert(
@@ -295,12 +228,12 @@ eval(
     end,
 )
 
-for T in _HyperbolicPointTypes
+for T in _otherHyperbolicPointTypes
     @eval function isapprox(::Hyperbolic, p::$T, q::$T; kwargs...)
         return isapprox(p.value, q.value; kwargs...)
     end
 end
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
     @eval function isapprox(::Hyperbolic, ::$P, X::$T, Y::$T; kwargs...)
         return isapprox(X.value, Y.value; kwargs...)
     end
@@ -323,7 +256,7 @@ the [`Lorentz`](@ref)ian manifold. For $p=q$ the logarihmic map is equal to the 
 """
 log(::Hyperbolic, ::Any...)
 
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
     @eval function log!(M::Hyperbolic, X::$T, p::$P, q::$P)
         X.value .=
             convert(
@@ -360,10 +293,6 @@ function Statistics.mean!(M::Hyperbolic, p, x::AbstractVector, w::AbstractVector
     return mean!(M, p, x, w, CyclicProximalPointEstimation(); kwargs...)
 end
 
-for T in _HyperbolicTypes
-    @eval number_eltype(p::$T) = typeof(one(eltype(p.value)))
-end
-
 @doc raw"""
     project(M::Hyperbolic, p, X)
 
@@ -385,7 +314,7 @@ the [`Lorentz`](@ref)ian manifold.
 project(::Hyperbolic, ::Any, ::Any)
 
 Base.show(io::IO, ::Hyperbolic{N}) where {N} = print(io, "Hyperbolic($(N))")
-for T in _HyperbolicTypes
+for T in [_otherHyperbolicTypes...,HyperboloidPoint, HyperboloidTVector]
     @eval Base.show(io::IO, p::$T) = print(io, "$($T)($(p.value))")
 end
 
@@ -404,7 +333,7 @@ where $⟨\cdot,\cdot⟩_p$ denotes the inner product in the tangent space at `p
 """
 vector_transport_to(::Hyperbolic, ::Any, ::Any, ::Any, ::ParallelTransport)
 
-for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
+for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
     @eval function vector_transport_to!(
         M::Hyperbolic,
         Y::$T,

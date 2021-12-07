@@ -180,7 +180,7 @@ include("../utils.jl")
 
                 @test real(inner(M, pts[1], v1, v2)) ≈ real(inner(M, pts[1], v2, v1))
                 @test imag(inner(M, pts[1], v1, v2)) ≈ -imag(inner(M, pts[1], v2, v1))
-                @test imag(inner(M, pts[1], v1, v1)) ≈ 0
+                @test imag(inner(M, pts[1], v1, v1)) ≈ 0 atol=1e-16
 
                 @test norm(M, pts[1], v1) isa Real
                 @test norm(M, pts[1], v1) ≈ sqrt(inner(M, pts[1], v1, v1))
