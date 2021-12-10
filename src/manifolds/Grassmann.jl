@@ -89,3 +89,9 @@ include("GrassmannProjector.jl")
 #
 # Conversion
 #
+function convert(::Type{ProjectorPoint}, p::AbstractMatrix)
+    return ProjectorPoint(p * p')
+end
+function convert(T::Type{ProjectorPoint}, p::GrassmannBasisPoint)
+    return convert(T, p.value)
+end

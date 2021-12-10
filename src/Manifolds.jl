@@ -436,9 +436,20 @@ export Euclidean,
     SymmetricPositiveSemidefiniteFixedRank,
     Torus,
     Tucker
-export HyperboloidPoint, PoincareBallPoint, PoincareHalfSpacePoint, SVDMPoint, TuckerPoint
+export HyperboloidPoint,
+    PoincareBallPoint,
+    PoincareHalfSpacePoint,
+    SVDMPoint,
+    TuckerPoint,
+    ProjectorPoint,
+    GrassmannBasisPoint
 export HyperboloidTVector,
-    PoincareBallTVector, PoincareHalfSpaceTVector, UMVTVector, TuckerTVector
+    PoincareBallTVector,
+    PoincareHalfSpaceTVector,
+    UMVTVector,
+    TuckerTVector,
+    ProjectorTVector,
+    GrassmannBasisTVector
 export AbstractNumbers, ℝ, ℂ, ℍ
 
 # decorator manifolds

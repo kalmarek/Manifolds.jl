@@ -114,6 +114,32 @@ include("../utils.jl")
                 atol=10^-15,
             )
         end
+
+        @testset "Projector representation" begin
+            p = ProjectorPoint(Matrix(Diagonal([1.0, 1.0, 0.0]))) # is a point
+            X = ProjectorTVector([0.0 0.0 1.0; 0.0 0.0 0.0; 1.0 0.0 0.0]) # a tangent vector
+            @test is_point(M, p)
+            @test is_vector(M, p, X)
+            @test repr(p) === "ProjectorPoint($(repr(p.value)))"
+            @test repr(X) == "ProjectorTVector($(repr(X.value)))"
+            p2 = ProjectorPoint(Matrix(Diagonal([1.1, 1.0, 0.0]))) # p != p^2
+            @test_throws DomainError is_point(M, p2, true)
+            p3 = ProjectorPoint(one(zeros(3, 3))) # too large rank
+            @test_throws DomainError is_point(M, p3, true)
+            X2 = ProjectorTVector([0.0 0.0 2.0; 0.0 0.0 0.0; 1.0 0.0 0.0]) # a not symmetric
+            @test_throws DomainError is_vector(M, p, X2, true)
+            X3 = ProjectorTVector([1.0 0.0 1.0; 0.0 0.0 0.0; 1.0 0.0 0.0]) # Xp+pX != X
+            @test_throws DomainError is_vector(M, p, X3, true)
+        end
+        @testset "Conversion" begin
+            p = [1.0 0.0; 0.0 1.0; 0.0 0.0]
+            p2 = convert(ProjectorPoint, p)
+            @test p2 isa ProjectorPoint
+            @test p2.value == [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 0.0]
+            p3 = convert(ProjectorPoint, GrassmannBasisPoint(p))
+            @test p3 isa ProjectorPoint
+            @test p3.value == [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 0.0]
+        end
     end
 
     @testset "Complex" begin
