@@ -58,7 +58,7 @@ struct Grassmann{n,k,𝔽} <: AbstractEmbeddedManifold{𝔽,DefaultIsometricEmbe
 
 Grassmann(n::Int, k::Int, field::AbstractNumbers=ℝ) = Grassmann{n,k,field}()
 
-function allocation_promotion_function(M::Grassmann{n,k,ℂ}, f, args::Tuple) where {n,k}
+function allocation_promotion_function(::Grassmann{n,k,ℂ}, f, ::Tuple) where {n,k}
     return complex
 end
 
@@ -85,3 +85,7 @@ eval(
 
 include("GrassmannStiefel.jl")
 include("GrassmannProjector.jl")
+
+#
+# Conversion
+#

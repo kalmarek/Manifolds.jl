@@ -1,6 +1,44 @@
 #
 # Default implementation for the matrix type, i.e. as congruence class Stiefel matrices
 #
+"""
+    GrassmannBasisPoint <: AbstractManifoldPoint
+
+A point on the [`Grassmann`](@ref) manifold represented by an orthonormal basis,
+i.e. a point on the corresponding [`Stiefel`](@ref) manifold. Note that a point
+represented this way has several points on the Stiefel manifold it corresponds to,
+that is all bases that span the same subspace as the point represented here.
+
+!!! note
+    The [`Grassmann`](@ref) manifold has this type as default type in the sense that
+    using this type for points `p` is the same as using arbitrary `AbstractMatrix` types.
+    This type is mainly provided for completeness.
+"""
+struct GrassmannBasisPoint{T<:AbstractMatrix} <: AbstractManifoldPoint
+    value::T
+end
+
+"""
+    GrassmannBasisTVector <: TVector
+
+A tangent vector on the [`Grassmann`](@ref) manifold represented by a tangent vector from
+the tangent space of a corresponding point from the [`Stiefel`](@ref) manifold,
+see [`GrassmannBasisPoint`](@ref).
+
+
+!!! note
+    The [`Grassmann`](@ref) manifold has this type as default type in the sense that
+    using this type for tangent vectors `X` is the same as using arbitrary `AbstractMatrix` types.
+    This type is mainly provided for completeness.
+"""
+struct GrassmannBasisTVector{T<:AbstractMatrix} <: AbstractManifoldPoint
+    value::T
+end
+
+@manifold_element_forwards GrassmannBasisPoint value
+@manifold_vector_forwards GrassmannBasisTVector value
+@default_manifold_fallbacks Grassmann GrassmannBasisPoint GrassmannBasisTVector value value
+
 @doc raw"""
     check_point(M::Grassmann{n,k,𝔽}, p)
 
@@ -153,6 +191,17 @@ inverse_retract(::Grassmann, ::Any, ::Any, ::QRInverseRetraction)
 
 inverse_retract!(::Grassmann, X, p, q, ::QRInverseRetraction) = copyto!(X, q / (p' * q) - p)
 
+function inverse_retract!(
+    M::Grassmann,
+    X::GrassmannBasisTVector,
+    p::GrassmannBasisPoint,
+    q::GrassmannBasisPoint,
+    m::Union{PolarInverseRetraction,QRInverseRetraction},
+)
+    inverse_retract!(M, X.value, q.value, p.value, m)
+    return q
+end
+
 function Base.isapprox(M::Grassmann, p, X, Y; kwargs...)
     return isapprox(sqrt(inner(M, p, zero_vector(M, p), X - Y)), 0; kwargs...)
 end
@@ -289,6 +338,16 @@ function retract!(::Grassmann{N,K}, q, p, X, ::QRRetraction) where {N,K}
     mul!(q, Array(qrfac.Q), D)
     return q
 end
+function retract!(
+    M::Grassmann,
+    q::GrassmannBasisPoint,
+    p::GrassmannBasisPoint,
+    X::GrassmannBasisTVector,
+    m::Union{PolarRetraction,QRRetraction},
+)
+    retract!(M, q.value, p.value, X.value, m)
+    return q
+end
 
 function Base.show(io::IO, ::Grassmann{n,k,𝔽}) where {n,k,𝔽}
     return print(io, "Grassmann($(n), $(k), $(𝔽))")
@@ -317,6 +376,9 @@ function uniform_distribution(M::Grassmann{n,k,ℝ}, p) where {n,k}
 
     return ProjectedPointDistribution(M, d, (M, q, p) -> (q .= svd(p).U), p)
 end
+
+Base.show(io::IO, p::GrassmannBasisPoint) = print(io, "GrassmannBasisPoint($(p.value))")
+Base.show(io::IO, X::GrassmannBasisTVector) = print(io, "GrassmannBasisTVector($(X.value))")
 
 @doc raw"""
     vector_transport_to(M::Grassmann,p,X,q,::ProjectionTransport)
