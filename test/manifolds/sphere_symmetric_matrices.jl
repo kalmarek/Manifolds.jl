@@ -73,7 +73,7 @@ include("../utils.jl")
             is_tangent_atol_multiplier=2,
             is_point_atol_multiplier=2,
             projection_atol_multiplier=2,
-            exp_log_atol_multiplier=2,
+            exp_log_atol_multiplier=8,
             test_inplace=true,
         )
     end
