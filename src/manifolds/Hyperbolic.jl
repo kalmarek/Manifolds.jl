@@ -114,14 +114,12 @@ include("HyperbolicPoincareHalfspace.jl")
 @manifold_vector_forwards PoincareHalfSpaceTVector value
 
 _otherHyperbolicPointTypes = [PoincareBallPoint, PoincareHalfSpacePoint]
-_otherHyperbolicTangentTypes =
-    [PoincareBallTVector, PoincareHalfSpaceTVector]
+_otherHyperbolicTangentTypes = [PoincareBallTVector, PoincareHalfSpaceTVector]
 _otherHyperbolicTypes = [_otherHyperbolicPointTypes..., _otherHyperbolicTangentTypes...]
 
 _HyperbolicPointTypes = [_otherHyperbolicPointTypes..., HyperboloidPoint]
 _HyperbolicTangentTypes = [_otherHyperbolicTangentTypes..., HyperboloidTVector]
 _HyperbolicTypes = [_HyperbolicPointTypes..., _HyperbolicTangentTypes...]
-
 
 for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
     @eval allocate(p::$P, ::Type{$T}) = $T(allocate(p.value))
@@ -317,7 +315,7 @@ the [`Lorentz`](@ref)ian manifold.
 project(::Hyperbolic, ::Any, ::Any)
 
 Base.show(io::IO, ::Hyperbolic{N}) where {N} = print(io, "Hyperbolic($(N))")
-for T in [_otherHyperbolicTypes...,HyperboloidPoint, HyperboloidTVector]
+for T in [_otherHyperbolicTypes..., HyperboloidPoint, HyperboloidTVector]
     @eval Base.show(io::IO, p::$T) = print(io, "$($T)($(p.value))")
 end
 
