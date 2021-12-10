@@ -118,7 +118,12 @@ _otherHyperbolicTangentTypes =
     [PoincareBallTVector, PoincareHalfSpaceTVector]
 _otherHyperbolicTypes = [_otherHyperbolicPointTypes..., _otherHyperbolicTangentTypes...]
 
-for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
+_HyperbolicPointTypes = [_otherHyperbolicPointTypes..., HyperboloidPoint]
+_HyperbolicTangentTypes = [_otherHyperbolicTangentTypes..., HyperboloidTVector]
+_HyperbolicTypes = [_HyperbolicPointTypes..., _HyperbolicTangentTypes...]
+
+
+for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
     @eval allocate(p::$P, ::Type{$T}) = $T(allocate(p.value))
     @eval allocate_result_type(::Hyperbolic, ::typeof(log), ::Tuple{$P,$P}) = $T
     @eval allocate_result_type(::Hyperbolic, ::typeof(inverse_retract), ::Tuple{$P,$P}) = $T
@@ -166,9 +171,7 @@ end
 
 # Define self conversions
 #
-for (P, T) in zip(
-    [HyperboloidPoint, PoincareBallPoint, PoincareHalfSpacePoint],
-    [HyperboloidPoint, PoincareBallTVector, PoincareHalfSpaceTVector])
+for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
     @eval convert(::Type{$T}, p::$P, X::$T) = X
     @eval function convert(
         ::Type{Tuple{AbstractVector,AbstractVector}},
