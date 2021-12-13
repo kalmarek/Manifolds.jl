@@ -1,9 +1,6 @@
 module Manifolds
 
 import ManifoldsBase:
-    @default_manifold_fallbacks,
-    @manifold_element_forwards,
-    @manifold_vector_forwards,
     _access_nested,
     _read,
     _write,
@@ -95,6 +92,9 @@ using Kronecker
 using Graphs
 using LinearAlgebra
 using ManifoldsBase:
+    @default_manifold_fallbacks,
+    @manifold_element_forwards,
+    @manifold_vector_forwards,
     ℝ,
     ℂ,
     ℍ,
