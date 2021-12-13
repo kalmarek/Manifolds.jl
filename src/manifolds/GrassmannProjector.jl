@@ -1,7 +1,7 @@
 @doc raw"""
     ProjectorPoint <: AbstractManifoldPoint
 
-A type to represent points on a manifold that are orthogonal projectors.
+A type to represent points on a manifold [`Grassmann`](@ref) that are orthogonal projectors.
 """
 struct ProjectorPoint{T<:AbstractMatrix} <: AbstractManifoldPoint
     value::T
@@ -72,7 +72,7 @@ function check_vector(
     X::ProjectorTVector;
     kwargs...,
 ) where {n,k,𝔽}
-    if !isapprox(norm(X.value - X.value'), 0.0; kwargs...)
+    if !isapprox(X.value, X.value'; kwargs...)
         return DomainError(
             norm(X.value - X.value'),
             "The vector $(X) is not a tangent vector to $(p) on $(M), since it is not symmetric.",
