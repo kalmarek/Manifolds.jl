@@ -13,6 +13,8 @@ using ManifoldsBase: TFVector
         @test injectivity_radius(M, ExponentialRetraction()) == π
         @test injectivity_radius(M, ProjectionRetraction()) == π / 2
         @test base_manifold(M) === M
+        @test is_default_metric(M, EuclideanMetric())
+        @test !is_default_metric(M, LinearAffineMetric())
         @test !is_point(M, [1.0, 0.0, 0.0, 0.0])
         @test !is_vector(M, [1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
         @test_throws DomainError is_point(M, [2.0, 0.0, 0.0], true)
@@ -37,7 +39,6 @@ using ManifoldsBase: TFVector
             test_manifold(
                 M,
                 pts,
-                test_reverse_diff=isa(T, Vector),
                 test_project_tangent=true,
                 test_musical_isomorphisms=true,
                 test_default_vector_transport=true,
@@ -59,6 +60,8 @@ using ManifoldsBase: TFVector
                 is_tangent_atol_multiplier=1,
                 test_atlases=test_atlases,
                 test_inplace=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
             @test isapprox(-pts[1], exp(M, pts[1], log(M, pts[1], -pts[1])))
         end
@@ -223,5 +226,12 @@ using ManifoldsBase: TFVector
         Z = change_metric(M, EuclideanMetric(), p, X)
         @test Z == X
         @test local_metric(M, p, DefaultOrthonormalBasis()) == Diagonal([1.0, 1.0])
+    end
+
+    @testset "Distributions" begin
+        sphere = Sphere(2)
+        haar_measure = uniform_distribution(sphere)
+        pts = rand(haar_measure, 5)
+        @test all(p -> is_point(sphere, p), pts)
     end
 end

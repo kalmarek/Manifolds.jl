@@ -1,5 +1,7 @@
 include("../utils.jl")
 
+using RecursiveArrayTools
+
 struct TestVectorSpaceType <: VectorSpaceType end
 
 @testset "Tangent bundle" begin
@@ -7,45 +9,61 @@ struct TestVectorSpaceType <: VectorSpaceType end
 
     @testset "Nice access to vector bundle components" begin
         TB = TangentBundle(M)
-        p = ProductRepr([1.0, 0.0, 0.0], [0.0, 2.0, 4.0])
-        @test p[TB, :point] === p.parts[1]
-        @test p[TB, :vector] === p.parts[2]
-        p[TB, :vector] = [0.0, 3.0, 1.0]
-        @test p.parts[2] == [0.0, 3.0, 1.0]
-        p[TB, :point] = [0.0, 1.0, 0.0]
-        @test p.parts[1] == [0.0, 1.0, 0.0]
-        @test_throws DomainError p[TB, :error]
-        @test_throws DomainError p[TB, :error] = [1, 2, 3]
+        @testset "ProductRepr" begin
+            p = ProductRepr([1.0, 0.0, 0.0], [0.0, 2.0, 4.0])
+            @test p[TB, :point] === p.parts[1]
+            @test p[TB, :vector] === p.parts[2]
+            p[TB, :vector] = [0.0, 3.0, 1.0]
+            @test p.parts[2] == [0.0, 3.0, 1.0]
+            p[TB, :point] = [0.0, 1.0, 0.0]
+            @test p.parts[1] == [0.0, 1.0, 0.0]
+            @test_throws DomainError p[TB, :error]
+            @test_throws DomainError p[TB, :error] = [1, 2, 3]
+        end
+        @testset "ArrayPartition" begin
+            p = ArrayPartition([1.0, 0.0, 0.0], [0.0, 2.0, 4.0])
+            @test p[TB, :point] === p.x[1]
+            @test p[TB, :vector] === p.x[2]
+            p[TB, :vector] = [0.0, 3.0, 1.0]
+            @test p.x[2] == [0.0, 3.0, 1.0]
+            p[TB, :point] = [0.0, 1.0, 0.0]
+            @test p.x[1] == [0.0, 1.0, 0.0]
+            @test_throws DomainError p[TB, :error]
+            @test_throws DomainError p[TB, :error] = [1, 2, 3]
+        end
     end
 
     types = [Vector{Float64}]
     TEST_FLOAT32 && push!(types, Vector{Float32})
     TEST_STATIC_SIZED && push!(types, MVector{3,Float64})
 
-    for T in types
+    for T in types, prepr in [ProductRepr, ArrayPartition]
         p = convert(T, [1.0, 0.0, 0.0])
         TB = TangentBundle(M)
         TpM = TangentSpaceAtPoint(M, p)
         @test sprint(show, TB) == "TangentBundle(Sphere(2, ℝ))"
         @test base_manifold(TB) == M
         @test manifold_dimension(TB) == 2 * manifold_dimension(M)
-        @test representation_size(TB) == (6,)
+        @test representation_size(TB) === nothing
         CTB = CotangentBundle(M)
         @test sprint(show, CTB) == "CotangentBundle(Sphere(2, ℝ))"
         @test sprint(show, VectorBundle(TestVectorSpaceType(), M)) ==
               "VectorBundle(TestVectorSpaceType(), Sphere(2, ℝ))"
         @testset "Type $T" begin
             pts_tb = [
-                ProductRepr(convert(T, [1.0, 0.0, 0.0]), convert(T, [0.0, -1.0, -1.0])),
-                ProductRepr(convert(T, [0.0, 1.0, 0.0]), convert(T, [2.0, 0.0, 1.0])),
-                ProductRepr(convert(T, [1.0, 0.0, 0.0]), convert(T, [0.0, 2.0, -1.0])),
+                prepr(convert(T, [1.0, 0.0, 0.0]), convert(T, [0.0, -1.0, -1.0])),
+                prepr(convert(T, [0.0, 1.0, 0.0]), convert(T, [2.0, 0.0, 1.0])),
+                prepr(convert(T, [1.0, 0.0, 0.0]), convert(T, [0.0, 2.0, -1.0])),
             ]
-            @inferred ProductRepr(
-                convert(T, [1.0, 0.0, 0.0]),
-                convert(T, [0.0, -1.0, -1.0]),
-            )
-            for pt in pts_tb
-                @test bundle_projection(TB, pt) ≈ pt.parts[1]
+            @inferred prepr(convert(T, [1.0, 0.0, 0.0]), convert(T, [0.0, -1.0, -1.0]))
+            if prepr === ProductRepr
+                for pt in pts_tb
+                    @test bundle_projection(TB, pt) ≈ pt.parts[1]
+                end
+            else
+                for pt in pts_tb
+                    @test bundle_projection(TB, pt) ≈ pt.x[1]
+                end
             end
             diag_basis = DiagonalizingOrthonormalBasis(log(TB, pts_tb[1], pts_tb[2]))
             basis_types = (
@@ -58,8 +76,6 @@ struct TestVectorSpaceType <: VectorSpaceType end
                 TB,
                 pts_tb,
                 test_injectivity_radius=false,
-                test_reverse_diff=isa(T, Vector),
-                test_forward_diff=isa(T, Vector),
                 test_tangent_vector_broadcasting=false,
                 test_vee_hat=true,
                 test_project_tangent=true,
@@ -69,6 +85,9 @@ struct TestVectorSpaceType <: VectorSpaceType end
                 basis_types_vecs=basis_types,
                 projection_atol_multiplier=4,
                 test_inplace=true,
+                test_representation_size=false,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
 
             # tangent space at point
@@ -85,8 +104,6 @@ struct TestVectorSpaceType <: VectorSpaceType end
                 TpM,
                 pts_TpM,
                 test_injectivity_radius=true,
-                test_reverse_diff=isa(T, Vector),
-                test_forward_diff=isa(T, Vector),
                 test_tangent_vector_broadcasting=true,
                 test_vee_hat=false,
                 test_project_tangent=true,
@@ -95,6 +112,8 @@ struct TestVectorSpaceType <: VectorSpaceType end
                 basis_types_vecs=basis_types,
                 projection_atol_multiplier=4,
                 test_inplace=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
         end
     end
@@ -154,14 +173,6 @@ struct TestVectorSpaceType <: VectorSpaceType end
         @test_throws ErrorException Manifolds.project!(vbf, [1, 2, 3], [1, 2, 3], [1, 2, 3])
         @test_throws ErrorException zero_vector!(vbf, [1, 2, 3], [1, 2, 3])
         @test_throws MethodError vector_space_dimension(vbf)
-        a = fill(0.0, 6)
-        @test_throws ErrorException get_coordinates!(
-            TangentBundle(M),
-            a,
-            ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
-            ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
-            CachedBasis(DefaultOrthonormalBasis(), []),
-        )
     end
 
     @testset "log and exp on tangent bundle for power and product manifolds" begin
@@ -182,7 +193,7 @@ struct TestVectorSpaceType <: VectorSpaceType end
         )
         @test isapprox(N2, p2_2, exp(N2, p1_2, log(N2, p1_2, p2_2)))
 
-        ppt = PowerVectorTransport(ParallelTransport())
+        ppt = ParallelTransport()
         tbvt = Manifolds.VectorBundleVectorTransport(ppt, ppt)
         @test TangentBundle(M, tbvt).vector_transport === tbvt
         @test CotangentBundle(M, tbvt).vector_transport === tbvt

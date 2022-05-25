@@ -35,114 +35,7 @@ struct GrassmannBasisTVector{T<:AbstractMatrix} <: AbstractManifoldPoint
     value::T
 end
 
-@manifold_element_forwards GrassmannBasisPoint value
-@manifold_vector_forwards GrassmannBasisTVector value
 @default_manifold_fallbacks Grassmann GrassmannBasisPoint GrassmannBasisTVector value value
-
-@doc raw"""
-    check_point(M::Grassmann{n,k,𝔽}, p)
-
-Check whether `p` is representing a point on the [`Grassmann`](@ref) `M`, i.e. its
-a `n`-by-`k` matrix of unitary column vectors and of correct `eltype` with respect to `𝔽`.
-"""
-function check_point(M::Grassmann{n,k,𝔽}, p; kwargs...) where {n,k,𝔽}
-    mpv = invoke(check_point, Tuple{supertype(typeof(M)),typeof(p)}, M, p; kwargs...)
-    mpv === nothing || return mpv
-    c = p' * p
-    if !isapprox(c, one(c); kwargs...)
-        return DomainError(
-            norm(c - one(c)),
-            "The point $(p) does not lie on $(M), because x'x is not the unit matrix.",
-        )
-    end
-    return nothing
-end
-
-@doc raw"""
-    check_vector(M::Grassmann{n,k,𝔽}, p, X; kwargs...)
-
-Check whether `X` is a tangent vector in the tangent space of `p` on
-the [`Grassmann`](@ref) `M`, i.e. that `X` is of size and type as well as that
-
-````math
-    p^{\mathrm{H}}X + X^{\mathrm{H}}p = 0_k,
-````
-
-where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transpose or Hermitian
-and $0_k$ the $k × k$ zero matrix.
-"""
-function check_vector(M::Grassmann{n,k,𝔽}, p, X; kwargs...) where {n,k,𝔽}
-    mpv = invoke(
-        check_vector,
-        Tuple{supertype(typeof(M)),typeof(p),typeof(X)},
-        M,
-        p,
-        X;
-        kwargs...,
-    )
-    mpv === nothing || return mpv
-    if !isapprox(p' * X, -conj(X' * p); kwargs...)
-        return DomainError(
-            norm(p' * X + conj(X' * p)),
-            "The matrix $(X) does not lie in the tangent space of $(p) on $(M), since p'X + X'p is not the zero matrix.",
-        )
-    end
-    return nothing
-end
-
-@doc raw"""
-    distance(M::Grassmann, p, q)
-
-Compute the Riemannian distance on [`Grassmann`](@ref) manifold `M`$= \mathrm{Gr}(n,k)$.
-
-Let $USV = p^\mathrm{H}q$ denote the SVD decomposition of
-$p^\mathrm{H}q$, where $\cdot^{\mathrm{H}}$ denotes the complex
-conjugate transposed or Hermitian. Then the distance is given by
-````math
-d_{\mathrm{Gr}(n,k)}(p,q) = \operatorname{norm}(\operatorname{Re}(b)).
-````
-where
-
-````math
-b_{i}=\begin{cases}
-0 & \text{if} \; S_i ≥ 1\\
-\arccos(S_i) & \, \text{if} \; S_i<1.
-\end{cases}
-````
-"""
-function distance(::Grassmann, p, q)
-    p ≈ q && return zero(real(eltype(p)))
-    a = svd(p' * q).S
-    return sqrt(sum(x -> abs2(acos(clamp(x, -1, 1))), a))
-end
-
-@doc raw"""
-    exp(M::Grassmann, p, X)
-
-Compute the exponential map on the [`Grassmann`](@ref) `M`$= \mathrm{Gr}(n,k)$ starting in
-`p` with tangent vector (direction) `X`. Let $X = USV$ denote the SVD decomposition of $X$.
-Then the exponential map is written using
-
-````math
-z = p V\cos(S)V^\mathrm{H} + U\sin(S)V^\mathrm{H},
-````
-
-where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transposed or Hermitian and the
-cosine and sine are applied element wise to the diagonal entries of $S$. A final QR
-decomposition $z=QR$ is performed for numerical stability reasons, yielding the result as
-
-````math
-\exp_p X = Q.
-````
-"""
-exp(::Grassmann, ::Any...)
-
-function exp!(M::Grassmann, q, p, X)
-    norm(M, p, X) ≈ 0 && return copyto!(q, p)
-    d = svd(X)
-    z = p * d.V * Diagonal(cos.(d.S)) * d.Vt + d.U * Diagonal(sin.(d.S)) * d.Vt
-    return copyto!(q, Array(qr(z).Q))
-end
 
 @doc raw"""
     inner(M::Grassmann, p, X, Y)
@@ -161,7 +54,7 @@ inner(::Grassmann, p, X, Y) = dot(X, Y)
 @doc raw"""
     inverse_retract(M::Grassmann, p, q, ::PolarInverseRetraction)
 
-Compute the inverse retraction for the [`PolarRetraction`](@ref), on the
+Compute the inverse retraction for the [`PolarRetraction`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/retractions.html#ManifoldsBase.PolarRetraction), on the
 [`Grassmann`](@ref) manifold `M`, i.e.,
 
 ````math
@@ -172,14 +65,14 @@ where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transposed or Hermitian
 """
 inverse_retract(::Grassmann, ::Any, ::Any, ::PolarInverseRetraction)
 
-function inverse_retract!(::Grassmann, X, p, q, ::PolarInverseRetraction)
+function inverse_retract_polar!(::Grassmann, X, p, q)
     return copyto!(X, q / (p' * q) - p)
 end
 
 @doc raw"""
     inverse_retract(M, p, q, ::QRInverseRetraction)
 
-Compute the inverse retraction for the [`QRRetraction`](@ref), on the
+Compute the inverse retraction for the [`QRRetraction`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/retractions.html#ManifoldsBase.QRRetraction), on the
 [`Grassmann`](@ref) manifold `M`, i.e.,
 
 ````math
@@ -189,18 +82,7 @@ where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transposed or Hermitian
 """
 inverse_retract(::Grassmann, ::Any, ::Any, ::QRInverseRetraction)
 
-inverse_retract!(::Grassmann, X, p, q, ::QRInverseRetraction) = copyto!(X, q / (p' * q) - p)
-
-function inverse_retract!(
-    M::Grassmann,
-    X::GrassmannBasisTVector,
-    p::GrassmannBasisPoint,
-    q::GrassmannBasisPoint,
-    m::Union{PolarInverseRetraction,QRInverseRetraction},
-)
-    inverse_retract!(M, X.value, q.value, p.value, m)
-    return q
-end
+inverse_retract_qr!(::Grassmann, X, p, q) = copyto!(X, q / (p' * q) - p)
 
 function Base.isapprox(M::Grassmann, p, X, Y; kwargs...)
     return isapprox(sqrt(inner(M, p, zero_vector(M, p), X - Y)), 0; kwargs...)
@@ -211,7 +93,7 @@ Base.isapprox(M::Grassmann, p, q; kwargs...) = isapprox(distance(M, p, q), 0.0; 
     log(M::Grassmann, p, q)
 
 Compute the logarithmic map on the [`Grassmann`](@ref) `M`$ = \mathcal M=\mathrm{Gr}(n,k)$,
-i.e. the tangent vector `X` whose corresponding [`geodesic`](@ref) starting from `p`
+i.e. the tangent vector `X` whose corresponding [`geodesic`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/functions.html#ManifoldsBase.geodesic-Tuple{AbstractManifold,%20Any,%20Any}) starting from `p`
 reaches `q` after time 1 on `M`. The formula reads
 
 ````math
@@ -247,7 +129,7 @@ Return the dimension of the [`Grassmann(n,k,𝔽)`](@ref) manifold `M`, i.e.
 \dim \operatorname{Gr}(n,k) = k(n-k) \dim_ℝ 𝔽,
 ````
 
-where $\dim_ℝ 𝔽$ is the [`real_dimension`](@ref) of `𝔽`.
+where $\dim_ℝ 𝔽$ is the [`real_dimension`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/types.html#ManifoldsBase.real_dimension-Tuple{ManifoldsBase.AbstractNumbers}) of `𝔽`.
 """
 manifold_dimension(::Grassmann{n,k,𝔽}) where {n,k,𝔽} = k * (n - k) * real_dimension(𝔽)
 
@@ -265,14 +147,8 @@ Compute the Riemannian [`mean`](@ref mean(M::AbstractManifold, args...)) of `x` 
 """
 mean(::Grassmann{n,k} where {n,k}, ::Any...)
 
-function Statistics.mean!(
-    M::Grassmann{n,k},
-    p,
-    x::AbstractVector,
-    w::AbstractVector;
-    kwargs...,
-) where {n,k}
-    return mean!(M, p, x, w, GeodesicInterpolationWithinRadius(π / 4); kwargs...)
+function default_estimation_method(::Grassmann, ::typeof(mean))
+    return GeodesicInterpolationWithinRadius(π / 4)
 end
 
 @doc raw"""
@@ -292,6 +168,53 @@ project(::Grassmann, ::Any...)
 project!(::Grassmann, Y, p, X) = copyto!(Y, X - p * p' * X)
 
 @doc raw"""
+    rand(M::Grassmann; σ::Real=1.0, vector_at=nothing)
+
+When `vector_at` is `nothing`, return a random point `p` on [`Grassmann`](@ref) manifold `M`
+by generating a random (Gaussian) matrix with standard deviation `σ` in matching
+size, which is orthonormal.
+
+When `vector_at` is not `nothing`, return a (Gaussian) random vector from the tangent space
+``T_p\mathrm{Gr}(n,k)`` with mean zero and standard deviation `σ` by projecting a random
+Matrix onto the tangent space at `vector_at`.
+"""
+rand(M::Grassmann; σ::Real=1.0)
+
+function Random.rand!(
+    M::Grassmann{n,k,𝔽},
+    pX;
+    σ::Real=one(real(eltype(pX))),
+    vector_at=nothing,
+) where {n,k,𝔽}
+    if vector_at === nothing
+        V = σ * randn(𝔽 === ℝ ? Float64 : ComplexF64, (n, k))
+        pX .= qr(V).Q[:, 1:k]
+    else
+        Z = σ * randn(eltype(pX), size(pX))
+        project!(M, pX, vector_at, Z)
+        pX .= pX ./ norm(pX)
+    end
+    return pX
+end
+function Random.rand!(
+    rng::AbstractRNG,
+    M::Grassmann{n,k,𝔽},
+    pX;
+    σ::Real=one(real(eltype(pX))),
+    vector_at=nothing,
+) where {n,k,𝔽}
+    if vector_at === nothing
+        V = σ * randn(rng, 𝔽 === ℝ ? Float64 : ComplexF64, (n, k))
+        pX .= qr(V).Q[:, 1:k]
+    else
+        Z = σ * randn(rng, eltype(pX), size(pX))
+        project!(M, pX, vector_at, Z)
+        pX .= pX ./ norm(pX)
+    end
+    return pX
+end
+
+@doc raw"""
     representation_size(M::Grassmann{n,k})
 
 Return the represenation size or matrix dimension of a point on the [`Grassmann`](@ref)
@@ -302,7 +225,7 @@ Return the represenation size or matrix dimension of a point on the [`Grassmann`
 @doc raw"""
     retract(M::Grassmann, p, X, ::PolarRetraction)
 
-Compute the SVD-based retraction [`PolarRetraction`](@ref) on the
+Compute the SVD-based retraction [`PolarRetraction`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/retractions.html#ManifoldsBase.PolarRetraction) on the
 [`Grassmann`](@ref) `M`. With $USV = p + X$ the retraction reads
 ````math
 \operatorname{retr}_p X = UV^\mathrm{H},
@@ -312,10 +235,15 @@ where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transposed or Hermitian
 """
 retract(::Grassmann, ::Any, ::Any, ::PolarRetraction)
 
+function retract_polar!(::Grassmann, q, p, X)
+    s = svd(p + X)
+    return mul!(q, s.U, s.Vt)
+end
+
 @doc raw"""
     retract(M::Grassmann, p, X, ::QRRetraction )
 
-Compute the QR-based retraction [`QRRetraction`](@ref) on the
+Compute the QR-based retraction [`QRRetraction`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/retractions.html#ManifoldsBase.QRRetraction) on the
 [`Grassmann`](@ref) `M`. With $QR = p + X$ the retraction reads
 ````math
 \operatorname{retr}_p X = QD,
@@ -327,25 +255,11 @@ D = \operatorname{diag}\left( \operatorname{sgn}\left(R_{ii}+\frac{1}{2}\right)_
 """
 retract(::Grassmann, ::Any, ::Any, ::QRRetraction)
 
-function retract!(::Grassmann, q, p, X, ::PolarRetraction)
-    s = svd(p + X)
-    return mul!(q, s.U, s.Vt)
-end
-function retract!(::Grassmann{N,K}, q, p, X, ::QRRetraction) where {N,K}
+function retract_qr!(::Grassmann{N,K}, q, p, X) where {N,K}
     qrfac = qr(p + X)
     d = diag(qrfac.R)
     D = Diagonal(sign.(d .+ 1 // 2))
     mul!(q, Array(qrfac.Q), D)
-    return q
-end
-function retract!(
-    M::Grassmann,
-    q::GrassmannBasisPoint,
-    p::GrassmannBasisPoint,
-    X::GrassmannBasisTVector,
-    m::Union{PolarRetraction,QRRetraction},
-)
-    retract!(M, q.value, p.value, X.value, m)
     return q
 end
 
@@ -377,9 +291,6 @@ function uniform_distribution(M::Grassmann{n,k,ℝ}, p) where {n,k}
     return ProjectedPointDistribution(M, d, (M, q, p) -> (q .= svd(p).U), p)
 end
 
-Base.show(io::IO, p::GrassmannBasisPoint) = print(io, "GrassmannBasisPoint($(p.value))")
-Base.show(io::IO, X::GrassmannBasisTVector) = print(io, "GrassmannBasisTVector($(X.value))")
-
 @doc raw"""
     vector_transport_to(M::Grassmann,p,X,q,::ProjectionTransport)
 
@@ -388,11 +299,6 @@ interpreting `X` from the tangent space at `p` as a point in the embedding and
 projecting it onto the tangent space at q.
 """
 vector_transport_to(::Grassmann, ::Any, ::Any, ::Any, ::ProjectionTransport)
-
-function vector_transport_to!(M::Grassmann, Y, p, X, q, ::ProjectionTransport)
-    project!(M, Y, q, X)
-    return Y
-end
 
 @doc raw"""
     zero_vector(M::Grassmann, p)

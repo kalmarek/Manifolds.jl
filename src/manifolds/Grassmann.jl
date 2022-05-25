@@ -1,5 +1,5 @@
 @doc raw"""
-    Grassmann{n,k,𝔽} <: AbstractEmbeddedManifold{𝔽,DefaultIsometricEmbeddingType}
+    Grassmann{n,k,𝔽} <: AbstractDecoratorManifold{𝔽}
 
 The Grassmann manifold $\operatorname{Gr}(n,k)$ consists of all subspaces spanned by $k$ linear independent
 vectors $𝔽^n$, where $𝔽  ∈ \{ℝ, ℂ\}$ is either the real- (or complex-) valued vectors.
@@ -54,15 +54,76 @@ The manifold is named after
 Generate the Grassmann manifold $\operatorname{Gr}(n,k)$, where the real-valued
 case `field = ℝ` is the default.
 """
-struct Grassmann{n,k,𝔽} <: AbstractEmbeddedManifold{𝔽,DefaultIsometricEmbeddingType} end
+struct Grassmann{n,k,𝔽} <: AbstractDecoratorManifold{𝔽} end
 
 Grassmann(n::Int, k::Int, field::AbstractNumbers=ℝ) = Grassmann{n,k,field}()
 
-function allocation_promotion_function(::Grassmann{n,k,ℂ}, f, ::Tuple) where {n,k}
+active_traits(f, ::Grassmann, args...) = merge_traits(IsIsometricEmbeddedManifold())
+
+function allocation_promotion_function(M::Grassmann{n,k,ℂ}, f, args::Tuple) where {n,k}
     return complex
 end
 
-decorated_manifold(::Grassmann{N,K,𝔽}) where {N,K,𝔽} = Euclidean(N, K; field=𝔽)
+@doc raw"""
+    distance(M::Grassmann, p, q)
+
+Compute the Riemannian distance on [`Grassmann`](@ref) manifold `M`$= \mathrm{Gr}(n,k)$.
+
+Let $USV = p^\mathrm{H}q$ denote the SVD decomposition of
+$p^\mathrm{H}q$, where $\cdot^{\mathrm{H}}$ denotes the complex
+conjugate transposed or Hermitian. Then the distance is given by
+````math
+d_{\mathrm{Gr}(n,k)}(p,q) = \operatorname{norm}(\operatorname{Re}(b)).
+````
+where
+
+````math
+b_{i}=\begin{cases}
+0 & \text{if} \; S_i ≥ 1\\
+\arccos(S_i) & \, \text{if} \; S_i<1.
+\end{cases}
+````
+"""
+function distance(::Grassmann, p, q)
+    p ≈ q && return zero(real(eltype(p)))
+    a = svd(p' * q).S
+    return sqrt(sum(x -> abs2(acos(clamp(x, -1, 1))), a))
+end
+
+embed(::Grassmann, p) = p
+embed(::Grassmann, p, X) = X
+
+@doc raw"""
+    exp(M::Grassmann, p, X)
+
+Compute the exponential map on the [`Grassmann`](@ref) `M`$= \mathrm{Gr}(n,k)$ starting in
+`p` with tangent vector (direction) `X`. Let $X = USV$ denote the SVD decomposition of $X$.
+Then the exponential map is written using
+
+````math
+z = p V\cos(S)V^\mathrm{H} + U\sin(S)V^\mathrm{H},
+````
+
+where $\cdot^{\mathrm{H}}$ denotes the complex conjugate transposed or Hermitian and the
+cosine and sine are applied element wise to the diagonal entries of $S$. A final QR
+decomposition $z=QR$ is performed for numerical stability reasons, yielding the result as
+
+````math
+\exp_p X = Q.
+````
+"""
+exp(::Grassmann, ::Any...)
+
+function exp!(M::Grassmann, q, p, X)
+    norm(M, p, X) ≈ 0 && return copyto!(q, p)
+    d = svd(X)
+    z = p * d.V * Diagonal(cos.(d.S)) * d.Vt + d.U * Diagonal(sin.(d.S)) * d.Vt
+    return copyto!(q, Array(qr(z).Q))
+end
+
+function get_embedding(::Grassmann{N,K,𝔽}) where {N,K,𝔽}
+    return Stiefel(N, K, 𝔽)
+end
 
 @doc raw"""
     injectivity_radius(M::Grassmann)
@@ -71,17 +132,9 @@ decorated_manifold(::Grassmann{N,K,𝔽}) where {N,K,𝔽} = Euclidean(N, K; fie
 Return the injectivity radius on the [`Grassmann`](@ref) `M`, which is $\frac{π}{2}$.
 """
 injectivity_radius(::Grassmann) = π / 2
-injectivity_radius(::Grassmann, ::ExponentialRetraction) = π / 2
-injectivity_radius(::Grassmann, ::Any) = π / 2
-injectivity_radius(::Grassmann, ::Any, ::ExponentialRetraction) = π / 2
-eval(
-    quote
-        @invoke_maker 1 AbstractManifold injectivity_radius(
-            M::Grassmann,
-            rm::AbstractRetractionMethod,
-        )
-    end,
-)
+injectivity_radius(::Grassmann, p) = π / 2
+injectivity_radius(::Grassmann, ::AbstractRetractionMethod) = π / 2
+injectivity_radius(::Grassmann, p, ::AbstractRetractionMethod) = π / 2
 
 include("GrassmannStiefel.jl")
 include("GrassmannProjector.jl")

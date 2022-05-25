@@ -23,7 +23,7 @@ end
 Get the projected components of `p` on the submanifolds of `M`. The components are returned in a Tuple.
 """
 submanifold_components(::Any...)
-@inline submanifold_components(M::AbstractManifold, p) = submanifold_components(p)
+@inline submanifold_components(::AbstractManifold, p) = submanifold_components(p)
 @inline submanifold_components(p) = p.parts
 @inline submanifold_components(p::ArrayPartition) = p.x
 
@@ -77,6 +77,8 @@ struct ProductRepr{TM<:Tuple}
 end
 
 ProductRepr(points...) = ProductRepr{typeof(points)}(points)
+
+Base.:(==)(x::ProductRepr, y::ProductRepr) = x.parts == y.parts
 
 @inline function number_eltype(x::ProductRepr)
     @inline eti_to_one(eti) = one(number_eltype(eti))

@@ -1,24 +1,18 @@
 include("../utils.jl")
 
-using Manifolds: default_metric_dispatch
-
 @testset "Symmetric Positive Definite Matrices" begin
     M1 = SymmetricPositiveDefinite(3)
     @test repr(M1) == "SymmetricPositiveDefinite(3)"
     M2 = MetricManifold(SymmetricPositiveDefinite(3), Manifolds.LinearAffineMetric())
     M3 = MetricManifold(SymmetricPositiveDefinite(3), Manifolds.LogCholeskyMetric())
     M4 = MetricManifold(SymmetricPositiveDefinite(3), Manifolds.LogEuclideanMetric())
-
-    @test (@inferred default_metric_dispatch(M2)) === Val(true)
-    @test (@inferred default_metric_dispatch(M1, Manifolds.LinearAffineMetric())) ===
-          Val(true)
-    @test (@inferred default_metric_dispatch(M1, Manifolds.LogCholeskyMetric())) ===
-          Val(false)
-    @test (@inferred default_metric_dispatch(M3)) === Val(false)
-    @test is_default_metric(M2)
-    @test is_default_metric(M1, Manifolds.LinearAffineMetric())
-    @test !is_default_metric(M1, Manifolds.LogCholeskyMetric())
-    @test !is_default_metric(M3)
+    M5 = MetricManifold(SymmetricPositiveDefinite(3), Manifolds.BuresWassersteinMetric())
+    M6 = MetricManifold(
+        SymmetricPositiveDefinite(3),
+        Manifolds.GeneralizedBuresWassersteinMetric(
+            [2.0 1.0 0.0; 1.0 2.0 1.0; 0.0 1.0 2.0],
+        ),
+    )
 
     @test injectivity_radius(M1) == Inf
     @test injectivity_radius(M1, one(zeros(3, 3))) == Inf
@@ -26,16 +20,16 @@ using Manifolds: default_metric_dispatch
     @test injectivity_radius(M1, one(zeros(3, 3)), ExponentialRetraction()) == Inf
     @test zero_vector(M1, one(zeros(3, 3))) == zero_vector(M2, one(zeros(3, 3)))
     @test zero_vector(M1, one(zeros(3, 3))) == zero_vector(M3, one(zeros(3, 3)))
-    metrics = [M1, M2, M3]
+    metrics = [M1, M2, M3, M5, M6]
     types = [Matrix{Float64}]
     TEST_FLOAT32 && push!(types, Matrix{Float32})
     TEST_STATIC_SIZED && push!(types, MMatrix{3,3,Float64,9})
 
     for M in metrics
-        basis_types = if M == M3
-            ()
-        else
+        basis_types = if (M == M1 || M == M2)
             (DefaultOrthonormalBasis(),)
+        else
+            ()
         end
         @testset "$(typeof(M))" begin
             @test representation_size(M) == (3, 3)
@@ -44,6 +38,10 @@ using Manifolds: default_metric_dispatch
                 if T <: MMatrix{3,3,Float64}
                     # eigendecomposition of 3x3 SPD matrices from StaticArrays is not very accurate
                     exp_log_atol_multiplier = 5.0e7
+                end
+                if M == M6
+                    # we have to raise this slightly for the nondiagonal case.
+                    exp_log_atol_multiplier = 5e1
                 end
                 if M == M3 && T <: MMatrix
                     # Cholesky or something does not work in vector_transport yet for MMatrix
@@ -59,17 +57,17 @@ using Manifolds: default_metric_dispatch
                 test_manifold(
                     M,
                     pts;
-                    test_default_vector_transport=true,
                     vector_transport_methods=typeof(M) == SymmetricPositiveDefinite{3} ?
                                              [ParallelTransport()] : [],
-                    test_forward_diff=false,
-                    test_reverse_diff=false,
                     test_vee_hat=M === M2,
                     exp_log_atol_multiplier=exp_log_atol_multiplier,
                     basis_types_vecs=basis_types,
                     basis_types_to_from=basis_types,
                     is_tangent_atol_multiplier=1,
                     test_inplace=true,
+                    test_rand_point=M === M1,
+                    test_rand_tvector=M === M1,
+                    test_default_vector_transport=!(M === M5 || M === M6),
                 )
             end
             @testset "Test Error cases in is_point and is_vector" begin
@@ -89,6 +87,16 @@ using Manifolds: default_metric_dispatch
     end
     p = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1]
     q = [2.0 0.0 0.0; 0.0 2.0 0.0; 0.0 0.0 1]
+    @testset "Convert Eucl/Emb to (Generalised) BW" begin
+        Z = ones(3, 3)
+        em = EuclideanMetric()
+        x = 2 .* (Z * p + p * Z)
+        X = change_representer(M5, em, p, Z)
+        @test isapprox(x, X)
+        y = 2 .* (Z * p * M6.metric.M + M6.metric.M * p' * Z)
+        Y = change_representer(M6, em, p, Z)
+        @test isapprox(y, Y)
+    end
     @testset "Convert SPD to Cholesky" begin
         v = log(M1, p, q)
         (l, w) = Manifolds.spd_to_cholesky(p, v)
@@ -153,5 +161,30 @@ using Manifolds: default_metric_dispatch
         X = [1.0 2.0 1.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
         Y = project(M1, p, X)
         @test is_vector(M1, p, Y)
+    end
+    @testset "Tangent ONB" begin
+        q = [2.0 0.0 0.0; 0.0 2.0 0.0; 0.0 0.0 1]
+        b = DefaultOrthonormalBasis()
+        B = get_basis(M1, q, b)
+        for i in 1:length(B.data)
+            @test norm(M1, q, B.data[i]) ≈ 1
+            for j in (i + 1):length(B.data)
+                @test inner(M1, q, B.data[i], B.data[j]) ≈ 0
+            end
+        end
+        X = [1.0 1.0 0.5; 1.0 1.0 0.0; 0.5 0.0 1.0]
+        c = get_coordinates(M1, q, X, b)
+        X2 = get_vector(M1, q, c, b)
+        @test isapprox(M1, q, X, X2)
+    end
+    @testset "rand()" begin
+        p = rand(M1)
+        @test is_point(M1, p)
+        @test is_vector(M1, p, rand(M1; vector_at=p, tangent_distr=:Rician))
+        @test is_vector(
+            M1,
+            p,
+            rand(MersenneTwister(123), M1; vector_at=p, tangent_distr=:Rician),
+        )
     end
 end

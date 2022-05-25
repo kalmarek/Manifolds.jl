@@ -11,6 +11,7 @@ include("../utils.jl")
           π * sqrt(2.0)
     @test injectivity_radius(M, PolarRetraction()) ≈ π / sqrt(2)
     @test injectivity_radius(M, [1.0 0.0; 0.0 1.0], PolarRetraction()) ≈ π / sqrt(2)
+    @test get_embedding(M) == Euclidean(2, 2)
     types = [Matrix{Float64}]
     TEST_FLOAT32 && push!(types, Matrix{Float32})
     TEST_STATIC_SIZED && push!(types, MMatrix{2,2,Float64,4})
@@ -42,7 +43,6 @@ include("../utils.jl")
         test_manifold(
             M,
             pts;
-            test_reverse_diff=false,
             test_injectivity_radius=false,
             test_project_tangent=true,
             test_musical_isomorphisms=true,
@@ -53,6 +53,7 @@ include("../utils.jl")
             tvector_distributions=[Manifolds.normal_tvector_distribution(M, pts[1], 1.0)],
             basis_types_to_from=basis_types,
             test_inplace=true,
+            test_rand_point=true,
         )
 
         @testset "log edge cases" begin
@@ -71,12 +72,12 @@ include("../utils.jl")
         exp!(M, q, q, X)
         @test norm(q - q2) ≈ 0
 
-        v14_polar = inverse_retract(M, pts[1], pts[4], Manifolds.PolarInverseRetraction())
-        p4_polar = retract(M, pts[1], v14_polar, Manifolds.PolarRetraction())
+        X14_polar = inverse_retract(M, pts[1], pts[4], Manifolds.PolarInverseRetraction())
+        p4_polar = retract(M, pts[1], X14_polar, Manifolds.PolarRetraction())
         @test isapprox(M, pts[4], p4_polar)
 
-        v14_qr = inverse_retract(M, pts[1], pts[4], Manifolds.QRInverseRetraction())
-        p4_qr = retract(M, pts[1], v14_qr, Manifolds.QRRetraction())
+        X14_qr = inverse_retract(M, pts[1], pts[4], Manifolds.QRInverseRetraction())
+        p4_qr = retract(M, pts[1], X14_qr, Manifolds.QRRetraction())
         @test isapprox(M, pts[4], p4_qr)
     end
 
@@ -102,11 +103,23 @@ include("../utils.jl")
             ptd = Manifolds.normal_rotation_distribution(SOn, Matrix(1.0I, n, n), 1.0)
             tvd = Manifolds.normal_tvector_distribution(SOn, Matrix(1.0I, n, n), 1.0)
             pts = [rand(ptd) for _ in 1:3]
+            diag_basis_1 = if n == 3
+                DiagonalizingOrthonormalBasis(
+                    [
+                        0.0 0.24800271831269094 0.30019597622794186
+                        -0.24800271831269094 0.0 -0.5902347224334308
+                        -0.30019597622794186 0.5902347224334308 0.0
+                    ],
+                )
+            else
+                DiagonalizingOrthonormalBasis(rand(SOn; vector_at=pts[1]))
+            end
+            diag_basis_2 = DiagonalizingOrthonormalBasis(
+                hat(SOn, pts[1], [1.0, zeros(manifold_dimension(SOn) - 1)...]),
+            )
             test_manifold(
                 SOn,
                 pts;
-                test_forward_diff=n == 3,
-                test_reverse_diff=false,
                 test_injectivity_radius=false,
                 test_musical_isomorphisms=true,
                 test_mutating_rand=true,
@@ -116,9 +129,12 @@ include("../utils.jl")
                 point_distributions=[ptd],
                 tvector_distributions=[tvd],
                 basis_types_to_from=basis_types,
+                basis_types_vecs=(diag_basis_1, diag_basis_2),
                 exp_log_atol_multiplier=250,
                 retraction_atol_multiplier=12,
                 test_inplace=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
 
             @testset "vee/hat" begin
@@ -137,7 +153,7 @@ include("../utils.jl")
 
             if n == 4
                 @testset "exp/log edge cases" begin
-                    vs = [
+                    Xs = [
                         [0, 0, π, 0, 0, π],  # θ = (π, π)
                         [0, 0, π, 0, 0, 0],  # θ = (π, 0)
                         [0, 0, π / 2, 0, 0, π],  # θ = (π, π/2)
@@ -149,13 +165,11 @@ include("../utils.jl")
                         [0, 0, 10, 0, 0, 1] .* 1e-6, # α ⪆ β ⩰ 0
                         [0, 0, π / 4, 0, 0, π / 4 - 1e-6], # α ⪆ β > 0
                     ]
-                    for Xf in vs
+                    for Xf in Xs
                         @testset "rotation vector $Xf" begin
                             X = Manifolds.hat(SOn, Matrix(1.0I, n, n), Xf)
                             p = exp(X)
                             @test p ≈ exp(SOn, one(p), X)
-                            @test ForwardDiff.derivative(t -> exp(SOn, one(p), t * X), 0) ≈
-                                  X
                             p2 = exp(log(SOn, one(p), p))
                             @test isapprox(p, p2; atol=1e-6)
                         end
@@ -167,8 +181,8 @@ include("../utils.jl")
                 Manifolds.hat(SOn, pts[1], π * normalize(randn(manifold_dimension(SOn)))),
             )
             p = exp(SOn, pts[1], X)
-            v2 = log(SOn, pts[1], p)
-            @test p ≈ exp(SOn, pts[1], v2)
+            X2 = log(SOn, pts[1], p)
+            @test p ≈ exp(SOn, pts[1], X2)
         end
     end
     @testset "Test AbstractManifold Point and Tangent Vector checks" begin
@@ -202,6 +216,17 @@ include("../utils.jl")
         rng = MersenneTwister(44)
         x3 = project(M, randn(rng, 3, 3))
         @test is_point(M, x3, true)
+    end
+    @testset "Convert from Lie algebra representation of tangents to Riemannian submanifold representation" begin
+        M = Manifolds.Rotations(3)
+        p = project(M, collect(reshape(1.0:9.0, (3, 3))))
+        x = [[0, -1, 3] [1, 0, 2] [-3, -2, 0]]
+        @test is_vector(M, p, x, true)
+        @test embed(M, p, x) == p * x
+        Y = zeros((3, 3))
+        embed!(M, Y, p, x)
+        @test Y == p * x
+        @test Y ≈ p * (p'Y - Y'p) / 2
     end
     @testset "Edge cases of Rotations" begin
         @test_throws OutOfInjectivityRadiusError inverse_retract(

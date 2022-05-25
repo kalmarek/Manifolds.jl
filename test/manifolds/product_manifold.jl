@@ -17,6 +17,11 @@ using RecursiveArrayTools: ArrayPartition
     @test injectivity_radius(Mse) ≈ π
     @test injectivity_radius(
         Mse,
+        ProductRetraction(ExponentialRetraction(), ExponentialRetraction()),
+    ) ≈ π
+    @test injectivity_radius(Mse, ExponentialRetraction()) ≈ π
+    @test injectivity_radius(
+        Mse,
         ProductRepr([0.0, 1.0, 0.0], [0.0, 0.0]),
         ProductRetraction(ExponentialRetraction(), ExponentialRetraction()),
     ) ≈ π
@@ -26,12 +31,16 @@ using RecursiveArrayTools: ArrayPartition
         ExponentialRetraction(),
     ) ≈ π
     @test is_default_metric(Mse, ProductMetric())
-    @test Manifolds.default_metric_dispatch(Mse, ProductMetric()) === Val{true}()
 
     @test Manifolds.number_of_components(Mse) == 2
     # test that arrays are not points
     @test_throws DomainError is_point(Mse, [1, 2], true)
+    @test check_point(Mse, [1, 2]) isa DomainError
     @test_throws DomainError is_vector(Mse, 1, [1, 2], true; check_base_point=false)
+    @test check_vector(Mse, 1, [1, 2]; check_base_point=false) isa DomainError
+    #default fallbacks for check_size, Product not working with Arrays
+    @test Manifolds.check_size(Mse, zeros(2)) isa DomainError
+    @test Manifolds.check_size(Mse, zeros(2), zeros(3)) isa DomainError
     types = [Vector{Float64}]
     TEST_FLOAT32 && push!(types, Vector{Float32})
     TEST_STATIC_SIZED && push!(types, MVector{5,Float64})
@@ -261,11 +270,11 @@ using RecursiveArrayTools: ArrayPartition
         Mser,
         pts,
         test_injectivity_radius=false,
-        test_forward_diff=false,
-        test_reverse_diff=false,
         is_tangent_atol_multiplier=1,
         exp_log_atol_multiplier=1,
         test_inplace=true,
+        test_rand_point=true,
+        test_rand_tvector=true,
     )
 
     @testset "product vector transport" begin
@@ -313,20 +322,61 @@ using RecursiveArrayTools: ArrayPartition
             @test isapprox(Mse, q, Y, Z)
         end
     end
+    @testset "Parallel transport" begin
+        p = ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0])
+        q = ProductRepr([0.0, 1.0, 0.0], [2.0, 0.0])
+        X = log(Mse, p, q)
+        # to
+        Y = parallel_transport_to(Mse, p, X, q)
+        Z1 = parallel_transport_to(
+            Mse.manifolds[1],
+            submanifold_component.([p, X, q], Ref(1))...,
+        )
+        Z2 = parallel_transport_to(
+            Mse.manifolds[2],
+            submanifold_component.([p, X, q], Ref(2))...,
+        )
+        Z = ProductRepr(Z1, Z2)
+        @test isapprox(Mse, q, Y, Z)
+        Ym = allocate(Y)
+        parallel_transport_to!(Mse, Ym, p, X, q)
+        @test isapprox(Mse, q, Y, Z)
+
+        # direction
+        Y = parallel_transport_direction(Mse, p, X, X)
+        Z1 = parallel_transport_direction(
+            Mse.manifolds[1],
+            submanifold_component.([p, X, X], Ref(1))...,
+        )
+        Z2 = parallel_transport_direction(
+            Mse.manifolds[2],
+            submanifold_component.([p, X, X], Ref(2))...,
+        )
+        Z = ProductRepr(Z1, Z2)
+        @test isapprox(Mse, q, Y, Z)
+        Ym = allocate(Y)
+        parallel_transport_direction!(Mse, Ym, p, X, X)
+        @test isapprox(Mse, q, Ym, Z)
+    end
 
     @testset "ProductRepr" begin
         @test (@inferred convert(
             ProductRepr{Tuple{T,Float64,T} where T},
             ProductRepr(9, 10, 11),
         )) == ProductRepr(9, 10.0, 11)
+        @test (@inferred convert(ProductRepr, ProductRepr(9, 10, 11))) ===
+              ProductRepr(9, 10, 11)
 
         p = ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0])
+        @test p == ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0])
         @test submanifold_component(Mse, p, 1) === p.parts[1]
         @test submanifold_component(Mse, p, Val(1)) === p.parts[1]
         @test submanifold_component(p, 1) === p.parts[1]
         @test submanifold_component(p, Val(1)) === p.parts[1]
         @test submanifold_components(Mse, p) === p.parts
         @test submanifold_components(p) === p.parts
+        @test allocate(p, Int, 10) isa Vector{Int}
+        @test length(allocate(p, Int, 10)) == 10
     end
 
     @testset "ArrayPartition" begin
@@ -375,6 +425,13 @@ using RecursiveArrayTools: ArrayPartition
             @test injectivity_radius(Mse, pts[1], ExponentialRetraction()) ≈ π
             @test injectivity_radius(Mse, ExponentialRetraction()) ≈ π
 
+            @test ManifoldsBase.allocate_coordinates(
+                Mse,
+                pts[1],
+                Float64,
+                number_of_coordinates(Mse, DefaultOrthogonalBasis()),
+            ) isa Vector{Float64}
+
             test_manifold(
                 Mse,
                 pts;
@@ -388,8 +445,6 @@ using RecursiveArrayTools: ArrayPartition
                 test_musical_isomorphisms=true,
                 musical_isomorphism_bases=[DefaultOrthonormalBasis()],
                 test_tangent_vector_broadcasting=true,
-                test_forward_diff=true,
-                test_reverse_diff=true,
                 test_project_tangent=true,
                 test_project_point=true,
                 test_mutating_rand=false,
@@ -397,6 +452,8 @@ using RecursiveArrayTools: ArrayPartition
                 inverse_retraction_methods=inverse_retraction_methods,
                 test_riesz_representer=true,
                 test_default_vector_transport=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
                 vector_transport_methods=[
                     ProductVectorTransport(ParallelTransport(), ParallelTransport()),
                     ProductVectorTransport(
@@ -431,6 +488,21 @@ using RecursiveArrayTools: ArrayPartition
         @test isapprox(X, X2)
     end
 
+    @testset "get_coordinates" begin
+        # make sure `get_coordinates` does not return an `ArrayPartition`
+        p1 = ProductRepr([0.0, 1.0, 0.0], [0.0, 0.0])
+        X1 = ProductRepr([1.0, 0.0, -1.0], [1.0, 0.0])
+        Tp1Mse = TangentSpaceAtPoint(Mse, p1)
+        c = get_coordinates(Tp1Mse, p1, X1, DefaultOrthonormalBasis())
+        @test c isa Vector
+
+        p1ap = ArrayPartition([0.0, 1.0, 0.0], [0.0, 0.0])
+        X1ap = ArrayPartition([1.0, 0.0, -1.0], [1.0, 0.0])
+        Tp1apMse = TangentSpaceAtPoint(Mse, p1ap)
+        cap = get_coordinates(Tp1apMse, p1ap, X1ap, DefaultOrthonormalBasis())
+        @test cap isa Vector
+    end
+
     @testset "Basis printing" begin
         p = ProductRepr([1.0, 0.0, 0.0], [1.0, 0.0])
         B = DefaultOrthonormalBasis()
@@ -447,12 +519,20 @@ using RecursiveArrayTools: ArrayPartition
 
     @testset "Basis-related errors" begin
         a = ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0])
-        @test_throws ErrorException get_vector!(
+        B = CachedBasis(DefaultOrthonormalBasis(), ProductBasisData(([],)))
+        @test_throws AssertionError get_vector!(
             Mse,
             a,
             ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0]),
-            [1.0, 2.0, 3.0, 4.0, 5.0],
-            CachedBasis(DefaultOrthonormalBasis(), []),
+            [1.0, 2.0, 3.0, 4.0, 5.0], # this is one element too long, hence assertionerror
+            B,
+        )
+        @test_throws MethodError get_vector!(
+            Mse,
+            a,
+            ProductRepr([1.0, 0.0, 0.0], [0.0, 0.0]),
+            [1.0, 2.0, 3.0, 4.0],
+            B, # empty elements yield a submanifold MethodError
         )
     end
 
@@ -461,6 +541,20 @@ using RecursiveArrayTools: ArrayPartition
         Msec = ProductManifold(M1, M2c)
         @test Manifolds.allocation_promotion_function(Msec, get_vector, ()) === complex
         @test Manifolds.allocation_promotion_function(Mse, get_vector, ()) === identity
+    end
+
+    @testset "empty allocation" begin
+        p = allocate_result(Mse, uniform_distribution)
+        @test isa(p, ProductRepr)
+        @test size(p[Mse, 1]) == (3,)
+        @test size(p[Mse, 2]) == (2,)
+    end
+
+    @testset "Uniform distribution" begin
+        Mss = ProductManifold(Sphere(2), Sphere(2))
+        p = rand(uniform_distribution(Mss))
+        @test is_point(Mss, p)
+        @test is_point(Mss, rand(uniform_distribution(Mss, p)))
     end
 
     @testset "Atlas & Induced Basis" begin

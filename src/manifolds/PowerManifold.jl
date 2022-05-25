@@ -14,7 +14,7 @@ struct ArrayPowerRepresentation <: AbstractPowerRepresentation end
 @doc raw"""
     PowerMetric <: AbstractMetric
 
-Represent the [`AbstractMetric`](@ref) on an [`AbstractPowerManifold`](@ref), i.e. the inner
+Represent the [`AbstractMetric`](@ref) on an `AbstractPowerManifold`, i.e. the inner
 product on the tangent space is the sum of the inner product of each elements
 tangent space of the power manifold.
 """
@@ -76,8 +76,6 @@ for PowerRepr in [PowerManifoldNested, PowerManifoldNestedReplacing]
     end
 end
 
-default_metric_dispatch(::AbstractPowerManifold, ::PowerMetric) = Val(true)
-
 """
     change_representer(M::AbstractPowerManifold, ::AbstractMetric, p, X)
 
@@ -124,7 +122,7 @@ end
     flat(M::AbstractPowerManifold, p, X)
 
 use the musical isomorphism to transform the tangent vector `X` from the tangent space at
-`p` on an [`AbstractPowerManifold`](@ref) `M` to a cotangent vector.
+`p` on an [`AbstractPowerManifold`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/manifolds.html#ManifoldsBase.AbstractPowerManifold)  `M` to a cotangent vector.
 This can be done elementwise for each entry of `X` (and `p`).
 """
 flat(::AbstractPowerManifold, ::Any...)
@@ -167,6 +165,78 @@ function Random.rand(rng::AbstractRNG, d::PowerPointDistribution)
     x = allocate_result(d.manifold, rand, d.point)
     Distributions._rand!(rng, d, x)
     return x
+end
+
+function Random.rand!(M::AbstractPowerManifold, pX; vector_at=nothing, kwargs...)
+    rep_size = representation_size(M.manifold)
+    if vector_at === nothing
+        for i in get_iterator(M)
+            rand!(M.manifold, _write(M, rep_size, pX, i))
+        end
+    else
+        for i in get_iterator(M)
+            rand!(
+                M.manifold,
+                _write(M, rep_size, pX, i);
+                vector_at=_read(M, rep_size, vector_at, i),
+            )
+        end
+    end
+    return pX
+end
+function Random.rand!(
+    rng::AbstractRNG,
+    M::AbstractPowerManifold,
+    pX;
+    vector_at=nothing,
+    kwargs...,
+)
+    rep_size = representation_size(M.manifold)
+    if vector_at === nothing
+        for i in get_iterator(M)
+            rand!(rng, M.manifold, _write(M, rep_size, pX, i))
+        end
+    else
+        for i in get_iterator(M)
+            rand!(
+                rng,
+                M.manifold,
+                _write(M, rep_size, pX, i);
+                vector_at=_read(M, rep_size, vector_at, i),
+            )
+        end
+    end
+    return pX
+end
+function Random.rand!(M::PowerManifoldNestedReplacing, pX; vector_at=nothing, kwargs...)
+    if vector_at === nothing
+        for i in get_iterator(M)
+            pX[i...] = rand(M.manifold; kwargs...)
+        end
+    else
+        for i in get_iterator(M)
+            pX[i...] = rand(M.manifold; vector_at=vector_at[i...], kwargs...)
+        end
+    end
+    return pX
+end
+function Random.rand!(
+    rng::AbstractRNG,
+    M::PowerManifoldNestedReplacing,
+    pX;
+    vector_at=nothing,
+    kwargs...,
+)
+    if vector_at === nothing
+        for i in get_iterator(M)
+            pX[i...] = rand(rng, M.manifold; kwargs...)
+        end
+    else
+        for i in get_iterator(M)
+            pX[i...] = rand(rng, M.manifold; vector_at=vector_at[i...], kwargs...)
+        end
+    end
+    return pX
 end
 
 function Distributions._rand!(
@@ -233,7 +303,7 @@ end
     sharp(M::AbstractPowerManifold, p, ξ::RieszRepresenterCotangentVector)
 
 Use the musical isomorphism to transform the cotangent vector `ξ` from the tangent space at
-`p` on an [`AbstractPowerManifold`](@ref) `M` to a tangent vector.
+`p` on an [`AbstractPowerManifold`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/manifolds.html#ManifoldsBase.AbstractPowerManifold)  `M` to a tangent vector.
 This can be done elementwise for every entry of `ξ` (and `p`).
 """
 sharp(::AbstractPowerManifold, ::Any...)
@@ -263,7 +333,7 @@ Distributions.support(tvd::PowerFVectorDistribution) = FVectorSupport(tvd.type, 
 Distributions.support(d::PowerPointDistribution) = MPointSupport(d.manifold)
 
 function vector_bundle_transport(fiber::VectorSpaceType, M::PowerManifold)
-    return PowerVectorTransport(ParallelTransport())
+    return ParallelTransport()
 end
 
 @inline function _write(

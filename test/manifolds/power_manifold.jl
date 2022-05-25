@@ -1,7 +1,6 @@
 include("../utils.jl")
 
 using HybridArrays, Random
-using Manifolds: default_metric_dispatch
 using StaticArrays: Dynamic
 
 Random.seed!(42)
@@ -55,8 +54,6 @@ end
     @test Ms^(5,) === Ms1
     @test Mr^(5, 7) === Mr2
 
-    @test is_default_metric(Ms1, PowerMetric())
-    @test default_metric_dispatch(Ms1, PowerMetric()) === Val{true}()
     types_s1 = [Array{Float64,2}, HybridArray{Tuple{3,Dynamic()},Float64,2}]
     types_s2 = [Array{Float64,3}, HybridArray{Tuple{3,Dynamic(),Dynamic()},Float64,3}]
 
@@ -68,9 +65,8 @@ end
     types_r2 = [Array{Float64,4}, HybridArray{Tuple{3,3,Dynamic(),Dynamic()},Float64,4}]
     types_rn2 = [Matrix{Matrix{Float64}}]
 
-    retraction_methods = [Manifolds.PowerRetraction(ManifoldsBase.ExponentialRetraction())]
-    inverse_retraction_methods =
-        [Manifolds.InversePowerRetraction(ManifoldsBase.LogarithmicInverseRetraction())]
+    retraction_methods = [ManifoldsBase.ExponentialRetraction()]
+    inverse_retraction_methods = [ManifoldsBase.LogarithmicInverseRetraction()]
 
     sphere_dist = Manifolds.uniform_distribution(Ms, @SVector [1.0, 0.0, 0.0])
     power_s1_pt_dist =
@@ -171,7 +167,7 @@ end
     end
 
     @testset "power vector transport" begin
-        m = PowerVectorTransport(ParallelTransport())
+        m = ParallelTransport()
         p = repeat([1.0, 0.0, 0.0], 1, 5)
         q = repeat([0.0, 1.0, 0.0], 1, 5)
         X = log(Ms1, p, q)
@@ -195,16 +191,12 @@ end
             test_manifold(
                 Ms1,
                 pts1;
-                test_reverse_diff=true,
                 test_musical_isomorphisms=true,
                 test_injectivity_radius=false,
                 test_default_vector_transport=true,
                 test_project_point=true,
                 test_project_tangent=true,
                 vector_transport_methods=[
-                    PowerVectorTransport(ParallelTransport()),
-                    PowerVectorTransport(SchildsLadderTransport()),
-                    PowerVectorTransport(PoleLadderTransport()),
                     ParallelTransport(),
                     SchildsLadderTransport(),
                     PoleLadderTransport(),
@@ -215,11 +207,13 @@ end
                 point_distributions=[power_s1_pt_dist],
                 tvector_distributions=[power_s1_tv_dist],
                 basis_types_to_from=(basis_diag, basis_arb, basis_types...),
-                rand_tvector_atol_multiplier=6.0,
+                rand_tvector_atol_multiplier=600.0,
                 retraction_atol_multiplier=12.0,
                 is_tangent_atol_multiplier=12.0,
-                exp_log_atol_multiplier=16 * prod(power_dimensions(Ms1)),
+                exp_log_atol_multiplier=20 * prod(power_dimensions(Ms1)),
                 test_inplace=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
         end
     end
@@ -229,7 +223,6 @@ end
             test_manifold(
                 Ms2,
                 pts2;
-                test_reverse_diff=true,
                 test_musical_isomorphisms=true,
                 test_injectivity_radius=false,
                 test_vee_hat=true,
@@ -252,7 +245,6 @@ end
             test_manifold(
                 Mr1,
                 pts1;
-                test_reverse_diff=false,
                 test_injectivity_radius=false,
                 test_musical_isomorphisms=true,
                 test_vee_hat=true,
@@ -276,7 +268,6 @@ end
             test_manifold(
                 Mrn1,
                 pts1;
-                test_reverse_diff=false,
                 test_injectivity_radius=false,
                 test_musical_isomorphisms=true,
                 test_vee_hat=true,
@@ -285,11 +276,13 @@ end
                 point_distributions=[power_rn1_pt_dist],
                 tvector_distributions=[power_rn1_tv_dist],
                 basis_types_to_from=basis_types,
-                rand_tvector_atol_multiplier=5.0,
+                rand_tvector_atol_multiplier=500.0,
                 retraction_atol_multiplier=12,
                 is_tangent_atol_multiplier=12.0,
                 exp_log_atol_multiplier=4e2 * prod(power_dimensions(Mrn1)),
                 test_inplace=true,
+                test_rand_point=true,
+                test_rand_tvector=true,
             )
         end
     end
@@ -299,7 +292,6 @@ end
             test_manifold(
                 Mr2,
                 pts2;
-                test_reverse_diff=false,
                 test_injectivity_radius=false,
                 test_musical_isomorphisms=true,
                 test_vee_hat=true,
@@ -321,7 +313,6 @@ end
             test_manifold(
                 Mrn2,
                 pts2;
-                test_reverse_diff=false,
                 test_injectivity_radius=false,
                 test_musical_isomorphisms=true,
                 test_vee_hat=true,
@@ -345,8 +336,6 @@ end
         test_manifold(
             MT,
             pts_t;
-            test_reverse_diff=false,
-            test_forward_diff=false,
             test_injectivity_radius=false,
             test_musical_isomorphisms=true,
             test_vee_hat=true,
@@ -357,6 +346,8 @@ end
             is_tangent_atol_multiplier=12.0,
             exp_log_atol_multiplier=1.0,
             test_inplace=true,
+            test_rand_point=true,
+            test_rand_tvector=true,
         )
     end
 
@@ -387,8 +378,6 @@ end
         test_manifold(
             MT,
             pts_t;
-            test_reverse_diff=false,
-            test_forward_diff=false,
             test_injectivity_radius=false,
             test_musical_isomorphisms=true,
             retraction_methods=retraction_methods,
@@ -431,5 +420,17 @@ end
             change_representer(M, e, q, log(M, q, p)),
         ]
         @test norm(N, P, Z .- Zc) ≈ 0
+    end
+
+    @testset "Nested replacing RNG" begin
+        M = PowerManifold(Ms, NestedReplacingPowerRepresentation(), 2)
+        @test is_point(M, rand(M))
+        @test is_point(M, rand(MersenneTwister(123), M))
+        @test rand(MersenneTwister(123), M) == rand(MersenneTwister(123), M)
+        p = rand(M)
+        @test is_vector(M, p, rand(M; vector_at=p); atol=1e-15)
+        @test is_vector(M, p, rand(MersenneTwister(123), M; vector_at=p); atol=1e-15)
+        @test rand(MersenneTwister(123), M; vector_at=p) ==
+              rand(MersenneTwister(123), M; vector_at=p)
     end
 end

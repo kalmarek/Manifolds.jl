@@ -18,17 +18,24 @@ elements are interpreted as ``n_1 × n_2 × … × n_i`` arrays.
 For ``i=2`` we obtain a matrix space.
 The default `field=ℝ` can also be set to `field=ℂ`.
 The dimension of this space is ``k \dim_ℝ 𝔽``, where ``\dim_ℝ 𝔽`` is the
-[`real_dimension`](@ref) of the field ``𝔽``.
+[`real_dimension`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/types.html#ManifoldsBase.real_dimension-Tuple{ManifoldsBase.AbstractNumbers}) of the field ``𝔽``.
 
     Euclidean(; field=ℝ)
 
 Generate the 1D Euclidean manifold for an `ℝ`-, `ℂ`-valued  real- or complex-valued immutable
 values (in contrast to 1-element arrays from the constructor above).
 """
-struct Euclidean{N,𝔽} <: AbstractManifold{𝔽} where {N<:Tuple} end
+struct Euclidean{N,𝔽} <: AbstractDecoratorManifold{𝔽} where {N<:Tuple} end
 
 function Euclidean(n::Vararg{Int,I}; field::AbstractNumbers=ℝ) where {I}
     return Euclidean{Tuple{n...},field}()
+end
+
+function active_traits(f, ::Euclidean, args...)
+    return merge_traits(
+        IsDefaultMetric(EuclideanMetric()),
+        IsDefaultConnection(LeviCivitaConnection()),
+    )
 end
 
 Base.:^(𝔽::AbstractNumbers, n) = Euclidean(n...; field=𝔽)
@@ -74,12 +81,6 @@ function check_point(M::Euclidean{N,𝔽}, p) where {N,𝔽}
             "The matrix $(p) is neither a real- nor complex-valued matrix, so it does not lie on $(M).",
         )
     end
-    if size(p) != representation_size(M)
-        return DomainError(
-            size(p),
-            "The matrix $(p) does not lie on $(M), since its dimensions ($(size(p))) are wrong (expected: $(representation_size(M))).",
-        )
-    end
     return nothing
 end
 
@@ -94,12 +95,6 @@ function check_vector(M::Euclidean{N,𝔽}, p, X; kwargs...) where {N,𝔽}
         return DomainError(
             eltype(X),
             "The matrix $(X) is neither a real- nor complex-valued matrix, so it can not be a tangent vector to $(p) on $(M).",
-        )
-    end
-    if size(X) != representation_size(M)
-        return DomainError(
-            size(X),
-            "The matrix $(X) does not lie in the tangent space of $(p) on $(M), since its dimensions $(size(X)) are wrong  (expected: $(representation_size(M))).",
         )
     end
     return nothing
@@ -137,9 +132,6 @@ embed(::Euclidean{Tuple{}}, p) = p
 Embed the tangent vector `X` at point `p` in `M`. Equivalent to an identity map.
 """
 embed(::Euclidean, p, X)
-
-embed!(::Euclidean, q, p) = copyto!(q, p)
-embed!(::Euclidean, Y, p, X) = copyto!(Y, X)
 
 function embed!(
     ::EmbeddedManifold{𝔽,Euclidean{nL,𝔽},Euclidean{mL,𝔽2}},
@@ -181,80 +173,111 @@ Base.exp(::Euclidean, p::Number, q::Number) = p + q
 
 exp!(::Euclidean, q, p, X) = (q .= p .+ X)
 
-function get_basis(::Euclidean, p, B::DefaultOrthonormalBasis{ℝ,TangentSpaceType})
-    vecs = [_euclidean_basis_vector(p, i) for i in eachindex(p)]
-    return CachedBasis(B, vecs)
-end
-function get_basis(
-    ::Euclidean{<:Tuple,ℂ},
+function get_basis_diagonalizing(
+    M::Euclidean,
     p,
-    B::DefaultOrthonormalBasis{ℂ,TangentSpaceType},
-)
-    vecs = [_euclidean_basis_vector(p, i) for i in eachindex(p)]
-    return CachedBasis(B, [vecs; im * vecs])
-end
-function get_basis(M::Euclidean, p, B::DiagonalizingOrthonormalBasis)
-    vecs = get_vectors(M, p, get_basis(M, p, DefaultOrthonormalBasis()))
+    B::DiagonalizingOrthonormalBasis{𝔽},
+) where {𝔽}
+    vecs = get_vectors(M, p, get_basis(M, p, DefaultOrthonormalBasis(𝔽)))
     eigenvalues = zeros(real(eltype(p)), manifold_dimension(M))
     return CachedBasis(B, DiagonalizingBasisData(B.frame_direction, eigenvalues, vecs))
 end
 
-function get_coordinates!(
+function get_coordinates_orthonormal!(M::Euclidean, c, p, X, ::RealNumbers)
+    S = representation_size(M)
+    PS = prod(S)
+    copyto!(c, reshape(X, PS))
+    return c
+end
+
+function get_coordinates_induced_basis!(
     M::Euclidean,
-    Y,
+    c,
     p,
     X,
-    ::Union{
-        DefaultOrDiagonalizingBasis{ℝ},
-        InducedBasis{ℝ,TangentSpaceType,<:RetractionAtlas},
-    },
+    ::InducedBasis{ℝ,TangentSpaceType,<:RetractionAtlas},
 )
     S = representation_size(M)
     PS = prod(S)
-    copyto!(Y, reshape(X, PS))
+    copyto!(c, reshape(X, PS))
+    return c
+end
+
+function get_coordinates_orthonormal!(
+    M::Euclidean{<:Tuple,ℂ},
+    c,
+    ::Any,
+    X,
+    ::ComplexNumbers,
+)
+    S = representation_size(M)
+    PS = prod(S)
+    c .= [reshape(real.(X), PS)..., reshape(imag(X), PS)...]
+    return c
+end
+
+function get_coordinates_diagonalizing!(
+    M::Euclidean{<:Tuple,ℂ},
+    c,
+    ::Any,
+    X,
+    ::DiagonalizingOrthonormalBasis{ℂ},
+)
+    S = representation_size(M)
+    PS = prod(S)
+    c .= [reshape(real.(X), PS)..., reshape(imag(X), PS)...]
+    return c
+end
+function get_coordinates_diagonalizing!(
+    M::Euclidean,
+    c,
+    p,
+    X,
+    ::DiagonalizingOrthonormalBasis{ℝ},
+) where {𝔽}
+    S = representation_size(M)
+    PS = prod(S)
+    copyto!(c, reshape(X, PS))
+    return c
+end
+
+function get_vector_orthonormal!(M::Euclidean, Y, ::Any, c, ::RealNumbers)
+    S = representation_size(M)
+    copyto!(Y, reshape(c, S))
     return Y
 end
-function get_coordinates!(
+function get_vector_diagonalizing!(
+    M::Euclidean,
+    Y,
+    ::Any,
+    c,
+    B::DiagonalizingOrthonormalBasis,
+)
+    S = representation_size(M)
+    copyto!(Y, reshape(c, S))
+    return Y
+end
+function get_vector_induced_basis!(M::Euclidean, Y, ::Any, c, B::InducedBasis)
+    S = representation_size(M)
+    copyto!(Y, reshape(c, S))
+    return Y
+end
+function get_vector_orthonormal!(M::Euclidean{<:Tuple,ℂ}, Y, ::Any, c, ::ComplexNumbers)
+    S = representation_size(M)
+    N = div(length(c), 2)
+    copyto!(Y, reshape(c[1:N] + im * c[(N + 1):end], S))
+    return Y
+end
+function get_vector_diagonalizing!(
     M::Euclidean{<:Tuple,ℂ},
     Y,
     ::Any,
-    X,
-    ::DefaultOrDiagonalizingBasis{ℂ},
+    c,
+    ::DiagonalizingOrthonormalBasis{ℂ},
 )
     S = representation_size(M)
-    PS = prod(S)
-    Y .= [reshape(real.(X), PS)..., reshape(imag(X), PS)...]
-    return Y
-end
-
-function get_vector!(
-    M::Euclidean,
-    Y,
-    ::Any,
-    X,
-    ::Union{
-        DefaultOrDiagonalizingBasis{ℝ},
-        InducedBasis{ℝ,TangentSpaceType,<:RetractionAtlas},
-    },
-)
-    S = representation_size(M)
-    copyto!(Y, reshape(X, S))
-    return Y
-end
-function get_vector!(
-    ::Euclidean,
-    Y::AbstractVector,
-    ::Any,
-    X,
-    ::DefaultOrDiagonalizingBasis{ℝ},
-)
-    copyto!(Y, X)
-    return Y
-end
-function get_vector!(M::Euclidean{<:Tuple,ℂ}, Y, ::Any, X, ::DefaultOrDiagonalizingBasis{ℂ})
-    S = representation_size(M)
-    N = div(length(X), 2)
-    copyto!(Y, reshape(X[1:N] + im * X[(N + 1):end], S))
+    N = div(length(c), 2)
+    copyto!(Y, reshape(c[1:N] + im * c[(N + 1):end], S))
     return Y
 end
 @doc raw"""
@@ -313,8 +336,6 @@ function inverse_local_metric(
     return local_metric(M, p, B)
 end
 
-default_metric_dispatch(::Euclidean, ::EuclideanMetric) = Val(true)
-
 function local_metric(
     ::MetricManifold{𝔽,<:AbstractManifold,EuclideanMetric},
     p,
@@ -330,18 +351,6 @@ function local_metric(
     return Diagonal(ones(SVector{size(p, 1),eltype(p)}))
 end
 
-function inverse_retract(M::Euclidean{Tuple{}}, x::T, y::T) where {T<:Number}
-    return inverse_retract(M, x, y, LogarithmicInverseRetraction())
-end
-function inverse_retract(
-    M::Euclidean{Tuple{}},
-    x::Number,
-    y::Number,
-    ::LogarithmicInverseRetraction,
-)
-    return log(M, x, y)
-end
-
 @doc raw"""
     log(M::Euclidean, p, q)
 
@@ -353,6 +362,7 @@ which in this case is just
 """
 Base.log(::Euclidean, ::Any...)
 Base.log(::Euclidean{Tuple{}}, p::Number, q::Number) = q - p
+Base.log(::Euclidean, p, q) = q .- p
 
 log!(::Euclidean, X, p, q) = (X .= q .- p)
 
@@ -370,7 +380,7 @@ end
     manifold_dimension(M::Euclidean)
 
 Return the manifold dimension of the [`Euclidean`](@ref) `M`, i.e.
-the product of all array dimensions and the [`real_dimension`](@ref) of the
+the product of all array dimensions and the [`real_dimension`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/types.html#ManifoldsBase.real_dimension-Tuple{ManifoldsBase.AbstractNumbers}) of the
 underlying number system.
 """
 function manifold_dimension(M::Euclidean{N,𝔽}) where {N,𝔽}
@@ -389,10 +399,6 @@ function Statistics.mean(
 end
 Statistics.mean(::Euclidean, x::AbstractVector; kwargs...) = mean(x)
 
-function Statistics.mean!(M::Euclidean, p, x::AbstractVector, w::AbstractVector; kwargs...)
-    return mean!(M, p, x, w, GeodesicInterpolation(); kwargs...)
-end
-
 function StatsBase.mean_and_var(
     ::Euclidean{Tuple{}},
     x::AbstractVector{<:Number};
@@ -410,14 +416,6 @@ function StatsBase.mean_and_var(
 )
     m, v = mean_and_var(x, w; corrected=corrected, kwargs...)
     return m, sum(v)
-end
-function StatsBase.mean_and_var(
-    M::Euclidean,
-    x::AbstractVector,
-    w::AbstractWeights;
-    kwargs...,
-)
-    return mean_and_var(M, x, w, GeodesicInterpolation(); kwargs...)
 end
 
 Statistics.median(::Euclidean{Tuple{}}, x::AbstractVector{<:Number}; kwargs...) = median(x)
@@ -472,6 +470,30 @@ function project!(
     return q
 end
 
+"""
+    parallel_transport_along(M::Euclidean, p, X, c)
+
+the parallel transport on [`Euclidean`](@ref) is the identiy, i.e. returns `X`.
+"""
+parallel_transport_along(::Euclidean, ::Any, X, c::AbstractVector) = X
+parallel_transport_along!(::Euclidean, Y, ::Any, X, c::AbstractVector) = copyto!(Y, X)
+
+"""
+    parallel_transport_direction(M::Euclidean, p, X, d)
+
+the parallel transport on [`Euclidean`](@ref) is the identiy, i.e. returns `X`.
+"""
+parallel_transport_direction(::Euclidean, ::Any, X, ::Any) = X
+parallel_transport_direction!(::Euclidean, Y, ::Any, X, ::Any) = copyto!(Y, X)
+
+"""
+    parallel_transport_to(M::Euclidean, p, X, q)
+
+the parallel transport on [`Euclidean`](@ref) is the identiy, i.e. returns `X`.
+"""
+parallel_transport_to(::Euclidean, ::Any, X, ::Any) = X
+parallel_transport_to!(::Euclidean, Y, ::Any, X, ::Any) = copyto!(Y, X)
+
 @doc raw"""
     project(M::Euclidean, p)
 
@@ -495,6 +517,21 @@ project(::Euclidean{Tuple{}}, ::Number, X::Number) = X
 
 project!(::Euclidean, Y, p, X) = copyto!(Y, X)
 
+function Random.rand!(::Euclidean, pX; σ=one(eltype(pX)), vector_at=nothing)
+    pX .= randn(size(pX)) .* σ
+    return pX
+end
+function Random.rand!(
+    rng::AbstractRNG,
+    ::Euclidean,
+    pX;
+    σ=one(eltype(pX)),
+    vector_at=nothing,
+)
+    pX .= randn(rng, size(pX)) .* σ
+    return pX
+end
+
 """
     representation_size(M::Euclidean)
 
@@ -514,18 +551,54 @@ end
 function Base.show(io::IO, ::Euclidean{N,𝔽}) where {N,𝔽}
     return print(io, "Euclidean($(join(N.parameters, ", ")); field = $(𝔽))")
 end
-
-function vector_transport_direction(
-    M::Euclidean{Tuple{}},
-    p::Number,
-    X::Number,
-    Y::Number,
-    m::AbstractVectorTransportMethod,
+#
+# Vector Transport
+#
+# The following functions are defined on layer 1 already, since
+# a) its independent of the transport or retraction method
+# b) no amibuities occur
+# c) Euclidean is so basic, that these are plain defaults
+#
+function vector_transport_along(
+    ::Euclidean,
+    ::Any,
+    X,
+    ::AbstractVector,
+    method::AbstractVectorTransportMethod,
 )
-    q = exp(M, p, Y)
-    return vector_transport_to(M, p, X, q, m)
+    return X
 end
-
+function vector_transport_along!(
+    M::Euclidean,
+    Y,
+    ::Any,
+    X,
+    ::AbstractVector,
+    ::AbstractVectorTransportMethod=default_vector_transport_method(M),
+)
+    return copyto!(Y, X)
+end
+function vector_transport_direction(
+    M::Euclidean,
+    ::Any,
+    X,
+    ::Any,
+    ::AbstractVectorTransportMethod=default_vector_transport_method(M),
+    ::AbstractRetractionMethod=default_retraction_method(M),
+)
+    return X
+end
+function vector_transport_direction!(
+    M::Euclidean,
+    Y,
+    ::Any,
+    X,
+    ::Any,
+    ::AbstractVectorTransportMethod=default_vector_transport_method(M),
+    ::AbstractRetractionMethod=default_retraction_method(M),
+)
+    return copyto!(Y, X)
+end
 """
     vector_transport_to(M::Euclidean, p, X, q, ::AbstractVectorTransportMethod)
 
@@ -534,39 +607,26 @@ on the [`Euclidean`](@ref) `M`, which simplifies to the identity.
 """
 vector_transport_to(::Euclidean, ::Any, ::Any, ::Any, ::AbstractVectorTransportMethod)
 function vector_transport_to(
-    ::Euclidean{Tuple{}},
-    ::Number,
-    X::Number,
-    ::Number,
-    ::AbstractVectorTransportMethod,
+    M::Euclidean,
+    ::Any,
+    X,
+    ::Any,
+    ::AbstractVectorTransportMethod=default_vector_transport_method(M),
+    ::AbstractRetractionMethod=default_retraction_method(M),
 )
     return X
 end
 
 function vector_transport_to!(
-    ::Euclidean,
+    M::Euclidean,
     Y,
     ::Any,
     X,
     ::Any,
-    ::AbstractVectorTransportMethod,
+    ::AbstractVectorTransportMethod=default_vector_transport_method(M),
+    ::AbstractRetractionMethod=default_retraction_method(M),
 )
     return copyto!(Y, X)
-end
-
-for VT in ManifoldsBase.VECTOR_TRANSPORT_DISAMBIGUATION
-    eval(
-        quote
-            @invoke_maker 6 AbstractVectorTransportMethod vector_transport_to!(
-                M::Euclidean,
-                Y,
-                p,
-                X,
-                q,
-                B::$VT,
-            )
-        end,
-    )
 end
 
 Statistics.var(::Euclidean, x::AbstractVector; kwargs...) = sum(var(x; kwargs...))

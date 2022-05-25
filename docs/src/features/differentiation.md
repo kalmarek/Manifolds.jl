@@ -10,13 +10,7 @@ Pages = ["differentiation/differentiation.jl"]
 Order = [:type, :function, :constant]
 ```
 
-### ForwardDiff.jl
-
-```@autodocs
-Modules = [Manifolds]
-Pages = ["differentiation/forward_diff.jl"]
-Order = [:type, :function, :constant]
-```
+Further differentiation backends and features are available in [`ManifoldDiff.jl`](https://github.com/JuliaManifolds/ManifoldDiff.jl).
 
 ### FiniteDifferenes.jl
 
@@ -31,5 +25,11 @@ Order = [:type, :function, :constant]
 ```@autodocs
 Modules = [Manifolds]
 Pages = ["differentiation/riemannian_diff.jl"]
+Order = [:type, :function, :constant]
+```
+
+```@autodocs
+Modules = [Manifolds]
+Pages = ["differentiation/embedded_diff.jl"]
 Order = [:type, :function, :constant]
 ```

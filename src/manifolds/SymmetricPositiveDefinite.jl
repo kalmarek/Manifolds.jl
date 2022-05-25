@@ -1,5 +1,5 @@
 @doc raw"""
-    SymmetricPositiveDefinite{N} <: AbstractEmbeddedManifold{ℝ,DefaultEmbeddingType}
+    SymmetricPositiveDefinite{N} <: AbstractDecoratorManifold{𝔽}
 
 The manifold of symmetric positive definite matrices, i.e.
 
@@ -26,9 +26,13 @@ i.e. the set of symmetric matrices,
 
 generates the manifold $\mathcal P(n) \subset ℝ^{n × n}$
 """
-struct SymmetricPositiveDefinite{N} <: AbstractEmbeddedManifold{ℝ,DefaultEmbeddingType} end
+struct SymmetricPositiveDefinite{N} <: AbstractDecoratorManifold{ℝ} end
 
 SymmetricPositiveDefinite(n::Int) = SymmetricPositiveDefinite{n}()
+
+function active_traits(f, ::SymmetricPositiveDefinite, args...)
+    return merge_traits(IsEmbeddedManifold(), IsDefaultMetric(LinearAffineMetric()))
+end
 
 @doc raw"""
     check_point(M::SymmetricPositiveDefinite, p; kwargs...)
@@ -38,8 +42,6 @@ of size `(N,N)`, symmetric and positive definite.
 The tolerance for the second to last test can be set using the `kwargs...`.
 """
 function check_point(M::SymmetricPositiveDefinite{N}, p; kwargs...) where {N}
-    mpv = invoke(check_point, Tuple{supertype(typeof(M)),typeof(p)}, M, p; kwargs...)
-    mpv === nothing || return mpv
     if !isapprox(norm(p - transpose(p)), 0.0; kwargs...)
         return DomainError(
             norm(p - transpose(p)),
@@ -65,15 +67,6 @@ Lie group.
 The tolerance for the last test can be set using the `kwargs...`.
 """
 function check_vector(M::SymmetricPositiveDefinite{N}, p, X; kwargs...) where {N}
-    mpv = invoke(
-        check_vector,
-        Tuple{supertype(typeof(M)),typeof(p),typeof(X)},
-        M,
-        p,
-        X;
-        kwargs...,
-    )
-    mpv === nothing || return mpv
     if !isapprox(norm(X - transpose(X)), 0.0; kwargs...)
         return DomainError(
             X,
@@ -83,9 +76,12 @@ function check_vector(M::SymmetricPositiveDefinite{N}, p, X; kwargs...) where {N
     return nothing
 end
 
-function decorated_manifold(M::SymmetricPositiveDefinite)
+function get_embedding(M::SymmetricPositiveDefinite)
     return Euclidean(representation_size(M)...; field=ℝ)
 end
+
+embed(::SymmetricPositiveDefinite, p) = p
+embed(::SymmetricPositiveDefinite, p, X) = X
 
 @doc raw"""
     injectivity_radius(M::SymmetricPositiveDefinite[, p])
@@ -97,17 +93,9 @@ Since `M` is a Hadamard manifold with respect to the [`LinearAffineMetric`](@ref
 [`LogCholeskyMetric`](@ref), the injectivity radius is globally $∞$.
 """
 injectivity_radius(::SymmetricPositiveDefinite) = Inf
-injectivity_radius(::SymmetricPositiveDefinite, ::ExponentialRetraction) = Inf
-injectivity_radius(::SymmetricPositiveDefinite, ::Any) = Inf
-injectivity_radius(::SymmetricPositiveDefinite, ::Any, ::ExponentialRetraction) = Inf
-eval(
-    quote
-        @invoke_maker 1 AbstractManifold injectivity_radius(
-            M::SymmetricPositiveDefinite,
-            rm::AbstractRetractionMethod,
-        )
-    end,
-)
+injectivity_radius(::SymmetricPositiveDefinite, p) = Inf
+injectivity_radius(::SymmetricPositiveDefinite, ::AbstractRetractionMethod) = Inf
+injectivity_radius(::SymmetricPositiveDefinite, p, ::AbstractRetractionMethod) = Inf
 
 @doc raw"""
     manifold_dimension(M::SymmetricPositiveDefinite)
@@ -136,25 +124,93 @@ Compute the Riemannian [`mean`](@ref mean(M::AbstractManifold, args...)) of `x` 
 """
 mean(::SymmetricPositiveDefinite, ::Any)
 
-function Statistics.mean!(
-    M::SymmetricPositiveDefinite,
-    p,
-    x::AbstractVector,
-    w::AbstractVector;
-    kwargs...,
-)
-    return mean!(M, p, x, w, GeodesicInterpolation(); kwargs...)
+function default_estimation_method(::SymmetricPositiveDefinite, ::typeof(mean))
+    return GeodesicInterpolation()
 end
 
 @doc raw"""
     project(M::SymmetricPositiveDefinite, p, X)
 
 project a matrix from the embedding onto the tangent space $T_p\mathcal P(n)$ of the
-[SymmetricPositiveDefinite](@ref) matrices, i.e. the set of symmetric matrices.
+[`SymmetricPositiveDefinite`](@ref) matrices, i.e. the set of symmetric matrices.
 """
 project(::SymmetricPositiveDefinite, p, X)
 
 project!(::SymmetricPositiveDefinite, Y, p, X) = (Y .= Symmetric((X + X') / 2))
+
+@doc raw"""
+    rand(M::SymmetricPositiveDefinite; σ::Real=1)
+
+Generate a random symmetric positive definite matrix on the
+`SymmetricPositiveDefinite` manifold `M`.
+"""
+rand(M::SymmetricPositiveDefinite; σ::Real=1)
+
+function Random.rand!(
+    M::SymmetricPositiveDefinite{N},
+    pX;
+    vector_at=nothing,
+    σ::Real=one(eltype(pX)) / (vector_at === nothing ? 1 : norm(vector_at)),
+    tangent_distr=:Gaussian,
+) where {N}
+    if vector_at === nothing
+        D = Diagonal(1 .+ rand(N)) # random diagonal matrix
+        s = qr(σ * randn(N, N)) # random q
+        pX .= Symmetric(s.Q * D * transpose(s.Q))
+    elseif tangent_distr === :Gaussian
+        # generate ONB in TxM
+        I = one(vector_at)
+        B = get_basis(M, vector_at, DiagonalizingOrthonormalBasis(I))
+        Ξ = get_vectors(M, vector_at, B)
+        Ξx =
+            vector_transport_to.(
+                Ref(M),
+                Ref(I),
+                Ξ,
+                Ref(vector_at),
+                Ref(ParallelTransport()),
+            )
+        pX .= sum(σ * randn(length(Ξx)) .* Ξx)
+    elseif tangent_distr === :Rician
+        C = cholesky(Hermitian(vector_at))
+        R = C.L + sqrt(σ) * triu(randn(size(vector_at, 1), size(vector_at, 2)), 0)
+        pX .= R * R'
+    end
+    return pX
+end
+function Random.rand!(
+    rng::AbstractRNG,
+    M::SymmetricPositiveDefinite{N},
+    pX;
+    vector_at=nothing,
+    σ::Real=one(eltype(pX)) / (vector_at === nothing ? 1 : norm(vector_at)),
+    tangent_distr=:Gaussian,
+) where {N}
+    if vector_at === nothing
+        D = Diagonal(1 .+ rand(rng, N)) # random diagonal matrix
+        s = qr(σ * randn(rng, N, N)) # random q
+        pX .= Symmetric(s.Q * D * transpose(s.Q))
+    elseif tangent_distr === :Gaussian
+        # generate ONB in TxM
+        I = one(vector_at)
+        B = get_basis(M, vector_at, DiagonalizingOrthonormalBasis(I))
+        Ξ = get_vectors(M, vector_at, B)
+        Ξx =
+            vector_transport_to.(
+                Ref(M),
+                Ref(I),
+                Ξ,
+                Ref(vector_at),
+                Ref(ParallelTransport()),
+            )
+        pX .= sum(σ * randn(rng, length(Ξx)) .* Ξx)
+    elseif tangent_distr === :Rician
+        C = cholesky(Hermitian(vector_at))
+        R = C.L + sqrt(σ) * triu(randn(rng, size(vector_at, 1), size(vector_at, 2)), 0)
+        pX .= R * R'
+    end
+    return pX
+end
 
 @doc raw"""
     representation_size(M::SymmetricPositiveDefinite)

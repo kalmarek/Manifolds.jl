@@ -1,5 +1,5 @@
 @doc raw"""
-    Hyperbolic{N} <: AbstractEmbeddedManifold{ℝ,DefaultIsometricEmbeddingType}
+    Hyperbolic{N} <: AbstractDecoratorManifold{ℝ}
 
 The hyperbolic space $\mathcal H^n$ represented by $n+1$-Tuples, i.e. embedded in the
 [`Lorentz`](@ref)ian manifold equipped with the [`MinkowskiMetric`](@ref)
@@ -33,9 +33,13 @@ and the Poincaré half space model, see [`PoincareHalfSpacePoint`](@ref) and [`P
 
 Generate the Hyperbolic manifold of dimension `n`.
 """
-struct Hyperbolic{N} <: AbstractEmbeddedManifold{ℝ,DefaultIsometricEmbeddingType} end
+struct Hyperbolic{N} <: AbstractDecoratorManifold{ℝ} end
 
 Hyperbolic(n::Int) = Hyperbolic{n}()
+
+function active_traits(f, ::Hyperbolic, args...)
+    return merge_traits(IsIsometricEmbeddedManifold(), IsDefaultMetric(MinkowskiMetric()))
+end
 
 @doc raw"""
     HyperboloidPoint <: AbstractManifoldPoint
@@ -102,23 +106,26 @@ struct PoincareHalfSpaceTVector{TValue<:AbstractVector} <: TVector
     value::TValue
 end
 
+ManifoldsBase.@manifold_element_forwards HyperboloidPoint value
+ManifoldsBase.@manifold_vector_forwards HyperboloidTVector value
+ManifoldsBase.@default_manifold_fallbacks Hyperbolic HyperboloidPoint HyperboloidTVector value value
+
+ManifoldsBase.@manifold_element_forwards PoincareBallPoint value
+ManifoldsBase.@manifold_vector_forwards PoincareBallTVector value
+
+ManifoldsBase.@manifold_element_forwards PoincareHalfSpacePoint value
+ManifoldsBase.@manifold_vector_forwards PoincareHalfSpaceTVector value
+
 include("HyperbolicHyperboloid.jl")
 include("HyperbolicPoincareBall.jl")
 include("HyperbolicPoincareHalfspace.jl")
 
-@manifold_element_forwards HyperboloidPoint value
-@manifold_element_forwards PoincareBallPoint value
-@manifold_element_forwards PoincareHalfSpacePoint value
-@manifold_vector_forwards HyperboloidTVector value
-@manifold_vector_forwards PoincareBallTVector value
-@manifold_vector_forwards PoincareHalfSpaceTVector value
+_ExtraHyperbolicPointTypes = [PoincareBallPoint, PoincareHalfSpacePoint]
+_ExtraHyperbolicTangentTypes = [PoincareBallTVector, PoincareHalfSpaceTVector]
+_ExtraHyperbolicTypes = [_ExtraHyperbolicPointTypes..., _ExtraHyperbolicTangentTypes...]
 
-_otherHyperbolicPointTypes = [PoincareBallPoint, PoincareHalfSpacePoint]
-_otherHyperbolicTangentTypes = [PoincareBallTVector, PoincareHalfSpaceTVector]
-_otherHyperbolicTypes = [_otherHyperbolicPointTypes..., _otherHyperbolicTangentTypes...]
-
-_HyperbolicPointTypes = [_otherHyperbolicPointTypes..., HyperboloidPoint]
-_HyperbolicTangentTypes = [_otherHyperbolicTangentTypes..., HyperboloidTVector]
+_HyperbolicPointTypes = [HyperboloidPoint, _ExtraHyperbolicPointTypes...]
+_HyperbolicTangentTypes = [HyperboloidTVector, _ExtraHyperbolicTangentTypes...]
 _HyperbolicTypes = [_HyperbolicPointTypes..., _HyperbolicTangentTypes...]
 
 for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
@@ -179,9 +186,10 @@ for (P, T) in zip(_HyperbolicPointTypes, _HyperbolicTangentTypes)
     end
 end
 
-decorated_manifold(::Hyperbolic{N}) where {N} = Lorentz(N + 1, MinkowskiMetric())
+get_embedding(::Hyperbolic{N}) where {N} = Lorentz(N + 1, MinkowskiMetric())
 
-default_metric_dispatch(::Hyperbolic, ::MinkowskiMetric) = Val(true)
+embed(::Hyperbolic, p::AbstractArray) = p
+embed(::Hyperbolic, p::AbstractArray, X::AbstractArray) = X
 
 @doc raw"""
     exp(M::Hyperbolic, p, X)
@@ -199,7 +207,7 @@ the [`Lorentz`](@ref)ian manifold.
 """
 exp(::Hyperbolic, ::Any...)
 
-for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
+for (P, T) in zip(_ExtraHyperbolicPointTypes, _ExtraHyperbolicTangentTypes)
     @eval function exp!(M::Hyperbolic, q::$P, p::$P, X::$T)
         q.value .=
             convert(
@@ -217,24 +225,13 @@ end
 Return the injectivity radius on the [`Hyperbolic`](@ref), which is $∞$.
 """
 injectivity_radius(::Hyperbolic) = Inf
-injectivity_radius(::Hyperbolic, ::ExponentialRetraction) = Inf
-injectivity_radius(::Hyperbolic, ::Any) = Inf
-injectivity_radius(::Hyperbolic, ::Any, ::ExponentialRetraction) = Inf
-eval(
-    quote
-        @invoke_maker 1 AbstractManifold injectivity_radius(
-            M::Hyperbolic,
-            rm::AbstractRetractionMethod,
-        )
-    end,
-)
 
-for T in _otherHyperbolicPointTypes
+for T in _ExtraHyperbolicPointTypes
     @eval function isapprox(::Hyperbolic, p::$T, q::$T; kwargs...)
         return isapprox(p.value, q.value; kwargs...)
     end
 end
-for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
+for (P, T) in zip(_ExtraHyperbolicPointTypes, _ExtraHyperbolicTangentTypes)
     @eval function isapprox(::Hyperbolic, ::$P, X::$T, Y::$T; kwargs...)
         return isapprox(X.value, Y.value; kwargs...)
     end
@@ -244,7 +241,7 @@ end
     log(M::Hyperbolic, p, q)
 
 Compute the logarithmic map on the [`Hyperbolic`](@ref) space $\mathcal H^n$, the tangent
-vector representing the [`geodesic`](@ref) starting from `p`
+vector representing the [`geodesic`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/functions.html#ManifoldsBase.geodesic-Tuple{AbstractManifold,%20Any,%20Any}) starting from `p`
 reaches `q` after time 1. The formula reads for $p ≠ q$
 
 ```math
@@ -257,7 +254,7 @@ the [`Lorentz`](@ref)ian manifold. For $p=q$ the logarihmic map is equal to the 
 """
 log(::Hyperbolic, ::Any...)
 
-for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
+for (P, T) in zip(_ExtraHyperbolicPointTypes, _ExtraHyperbolicTangentTypes)
     @eval function log!(M::Hyperbolic, X::$T, p::$P, q::$P)
         X.value .=
             convert(
@@ -290,9 +287,7 @@ Compute the Riemannian [`mean`](@ref mean(M::AbstractManifold, args...)) of `x` 
 """
 mean(::Hyperbolic, ::Any...)
 
-function Statistics.mean!(M::Hyperbolic, p, x::AbstractVector, w::AbstractVector; kwargs...)
-    return mean!(M, p, x, w, CyclicProximalPointEstimation(); kwargs...)
-end
+default_estimation_method(::Hyperbolic, ::typeof(mean)) = CyclicProximalPointEstimation()
 
 @doc raw"""
     project(M::Hyperbolic, p, X)
@@ -320,10 +315,10 @@ for T in [_otherHyperbolicTypes..., HyperboloidPoint, HyperboloidTVector]
 end
 
 @doc raw"""
-    vector_transport_to(M::Hyperbolic, p, X, q, ::ParallelTransport)
+    parallel_transport_to(M::Hyperbolic, p, X, q)
 
 Compute the paralllel transport of the `X` from the tangent space at `p` on the
-[`Hyperbolic`](@ref) space $\mathcal H^n$ to the tangent at `q` along the [`geodesic`](@ref)
+[`Hyperbolic`](@ref) space $\mathcal H^n$ to the tangent at `q` along the [`geodesic`](https://juliamanifolds.github.io/ManifoldsBase.jl/stable/functions.html#ManifoldsBase.geodesic-Tuple{AbstractManifold,%20Any,%20Any})
 connecting `p` and `q`. The formula reads
 
 ````math
@@ -332,27 +327,19 @@ connecting `p` and `q`. The formula reads
 ````
 where $⟨\cdot,\cdot⟩_p$ denotes the inner product in the tangent space at `p`.
 """
-vector_transport_to(::Hyperbolic, ::Any, ::Any, ::Any, ::ParallelTransport)
+parallel_transport_to(::Hyperbolic, ::Any, ::Any, ::Any)
 
-for (P, T) in zip(_otherHyperbolicPointTypes, _otherHyperbolicTangentTypes)
-    @eval function vector_transport_to!(
-        M::Hyperbolic,
-        Y::$T,
-        p::$P,
-        X::$T,
-        q::$P,
-        m::ParallelTransport,
-    )
+for (P, T) in zip(_ExtraHyperbolicPointTypes, _ExtraHyperbolicTangentTypes)
+    @eval function parallel_transport_to!(M::Hyperbolic, Y::$T, p::$P, X::$T, q::$P)
         Y.value .=
             convert(
                 $T,
                 convert(AbstractVector, q),
-                vector_transport_to(
+                parallel_transport_to(
                     M,
                     convert(AbstractVector, p),
                     convert(AbstractVector, p, X),
                     convert(AbstractVector, q),
-                    m,
                 ),
             ).value
         return Y
